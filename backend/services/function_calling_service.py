@@ -3,6 +3,7 @@ from sqlalchemy import or_, and_
 from models.content_models import Product, Category
 from typing import List, Optional, Dict, Any
 import re
+from rapidfuzz import process, fuzz
 
 def search_products(
     db: Session,
@@ -14,6 +15,8 @@ def search_products(
 
     has_filter = False
     filter_logs = []
+    fuzzy_name = None
+    fuzzy_mode = False
 
     # Lọc theo tên sản phẩm (tìm kiếm gần đúng, không phân biệt hoa thường, bỏ khoảng trắng thừa)
     if search_params.get('name'):
@@ -21,6 +24,7 @@ def search_products(
         query = query.filter(or_(Product.title.ilike(f'%{name}%'), Product.short_description.ilike(f'%{name}%')))
         has_filter = True
         filter_logs.append(f"name~='{name}'")
+        fuzzy_name = name
 
     # Lọc theo mô tả ngắn
     if search_params.get('description'):
@@ -89,9 +93,29 @@ def search_products(
     print(f"[DEBUG] 🔎 Filter áp dụng: {', '.join(filter_logs)}")
     query = query.limit(limit)
     products = query.all()
+    # Nếu tìm theo name mà không ra sản phẩm, thử fuzzy search
+    if fuzzy_name and not products:
+        print('[DEBUG] 🟡 Không tìm thấy sản phẩm với ilike, thử fuzzy search...')
+        all_products = db.query(Product).filter(Product.status == 'active').all()
+        choices = [(f"{p.title} {p.short_description or ''}", p) for p in all_products]
+        results = process.extract(fuzzy_name, [c[0] for c in choices], scorer=fuzz.WRatio, limit=limit)
+        # Lấy các sản phẩm vượt ngưỡng 50
+        matched_titles = [r[0] for r in results if r[1] >= 50]
+        products = [p for t, p in choices if t in matched_titles]
+        # Nếu không có sản phẩm vượt ngưỡng, lấy sản phẩm có điểm số cao nhất (nếu có ít nhất 1 sản phẩm và điểm số >= 40)
+        if not products and results:
+            best_title, best_score = results[0][0], results[0][1]
+            if best_score >= 40:
+                products = [p for t, p in choices if t == best_title]
+                print(f"[DEBUG] ✅ Fuzzy search: trả về sản phẩm gần đúng nhất với điểm số {best_score}")
+            else:
+                print(f"[DEBUG] ❌ Fuzzy search: không có sản phẩm nào đủ gần đúng (score={best_score})")
+        fuzzy_mode = True
     print(f"[DEBUG] ✅ Sản phẩm trả về sau filter: {[{'id': p.id, 'title': p.title, 'price': p.price, 'currentPrice': p.currentPrice} for p in products]}")
     if not products:
         print('[DEBUG] ❌ Không tìm thấy sản phẩm phù hợp với params:', search_params)
+    elif fuzzy_mode:
+        print('[DEBUG] ✅ Đã dùng fuzzy search cho trường name!')
     return products
 
 
@@ -99,6 +123,21 @@ def extract_search_params(text: str) -> Dict[str, Any]:
     import re
 
     params = {}
+    text_lower = text.lower()
+
+    # Mapping từ khóa sang filter thông minh
+    if any(kw in text_lower for kw in ["bán chạy", "best seller", "best_seller"]):
+        params["status"] = "best_seller"
+    if any(kw in text_lower for kw in ["trending", "hot", "thịnh hành"]):
+        params["status"] = "trending"
+    if any(kw in text_lower for kw in ["mới", "new", "newest"]):
+        params["status"] = "newest"
+    if any(kw in text_lower for kw in ["giảm giá", "flash sale", "sale", "đang giảm"]):
+        params["is_flash_sale"] = True
+    if any(kw in text_lower for kw in ["rẻ", "giá rẻ", "giá thấp", "dưới", "khoảng"]):
+        params["max_price"] = 500  # Giả định giá rẻ là dưới 500
+    if any(kw in text_lower for kw in ["còn hàng", "có hàng", "in stock"]):
+        params["in_stock"] = True
 
     # Tách giá
     min_price, max_price = extract_price_range(text)
@@ -107,15 +146,14 @@ def extract_search_params(text: str) -> Dict[str, Any]:
     if max_price is not None:
         params['max_price'] = max_price
 
-    # Tách trạng thái
-    status = extract_status(text)
-    if status:
-        params['status'] = status
+    # Tách trạng thái (nếu chưa có status)
+    if 'status' not in params:
+        status = extract_status(text)
+        if status:
+            params['status'] = status
 
     # Danh sách category bạn muốn hỗ trợ
     possible_categories = ['laptop', 'điện thoại', 'máy tính bảng', 'tai nghe', 'phụ kiện']
-
-    text_lower = text.lower()
 
     # Tìm category nào xuất hiện trong câu
     found_category = None
@@ -238,7 +276,7 @@ def process_message_with_function_calling(message: str, db) -> Dict[str, Any]:
         product_list.append(product_dict)
 
     return {
-        "response": f"Tìm thấy {len(product_list)} sản phẩm phù hợp." if product_list else "Hiện chưa tìm thấy sản phẩm phù hợp.",
+        "response": "Tìm thấy {} sản phẩm phù hợp.".format(len(product_list)) if product_list else "Hiện chưa tìm thấy sản phẩm phù hợp.",
         "products": product_list,
         "actions": None
     }
