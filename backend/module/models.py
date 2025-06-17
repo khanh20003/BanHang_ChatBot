@@ -97,6 +97,7 @@ class ChatSession(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     customer_id = Column(Integer, index=True)
+    chat_session_id = Column(String, unique=True, nullable=True)  # session random cho khách chưa đăng nhập
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")

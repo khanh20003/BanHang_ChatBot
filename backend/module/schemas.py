@@ -199,12 +199,14 @@ class ChatMessageSchema(ChatMessageBase):
 class ChatRequest(BaseModel):
     customer_id: int
     message: str
+    chat_session_id: str | None = None
 
 class ChatResponse(BaseModel):
     response: str
     timestamp: datetime
     products: Optional[List[dict]] = None  # Cho phép trả về list sản phẩm dạng dict
     actions: Optional[List[dict]] = None   # Cho phép trả về list action dạng dict
+    chat_session_id: Optional[str] = None  # Trả về session_id cho frontend lưu lại
 
 # --- USER ---
 class UserBase(BaseModel):

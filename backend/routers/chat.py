@@ -11,12 +11,23 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("/", response_model=ChatResponse)
 def chat(request: ChatRequest, db: Session = Depends(get_db)):
     try:
-        session = db.query(ChatSession).filter(ChatSession.customer_id == request.customer_id).first()
+        session = None
+        print(f"[DEBUG] Nhận chat_session_id từ request: {request.chat_session_id}")
+        # Ưu tiên tìm session theo chat_session_id nếu có
+        if request.chat_session_id:
+            session = db.query(ChatSession).filter(ChatSession.chat_session_id == request.chat_session_id).first()
+        # Nếu không có chat_session_id, mới tìm theo customer_id (chỉ cho user đã đăng nhập)
+        elif request.customer_id and request.customer_id != 0:
+            session = db.query(ChatSession).filter(ChatSession.customer_id == request.customer_id).first()
         if not session:
-            session = ChatSession(customer_id=request.customer_id)
+            session = ChatSession(customer_id=request.customer_id if request.customer_id != 0 else None,
+                                  chat_session_id=request.chat_session_id)
             db.add(session)
             db.commit()
             db.refresh(session)
+            print(f"[DEBUG] Tạo session mới với chat_session_id: {session.chat_session_id}")
+        else:
+            print(f"[DEBUG] Đã tìm thấy session: id={session.id}, chat_session_id={session.chat_session_id}")
 
         # Lưu câu hỏi
         user_msg = ChatMessage(session_id=session.id, sender="customer", message=request.message)
@@ -42,7 +53,8 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
             response=response_text,
             timestamp=bot_msg.timestamp,
             products=products,
-            actions=actions
+            actions=actions,
+            chat_session_id=session.chat_session_id
         )
     except Exception as e:
         db.rollback()
@@ -53,4 +65,4 @@ def get_chat_history(customer_id: int, db: Session = Depends(get_db)):
     session = db.query(ChatSession).filter(ChatSession.customer_id == customer_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên trò chuyện.")
-    return session.messages 
+    return session.messages

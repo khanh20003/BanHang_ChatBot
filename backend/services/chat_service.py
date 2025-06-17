@@ -28,6 +28,11 @@ function_schema = [
             },
             "required": []
         }
+    },
+    {
+        "name": "get_store_info",
+        "description": "Trả về thông tin trụ sở, địa chỉ, liên hệ của cửa hàng",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []}
     }
 ]
 
@@ -72,6 +77,18 @@ def extract_gemini_args(fc):
     return params
 
 
+def get_store_info():
+    # Ở đây bạn có thể lấy từ DB, file config, hoặc API. Demo trả về động:
+    # Ví dụ lấy từ file config hoặc biến môi trường nếu muốn mở rộng
+    return {
+        "name": "Siêu Thị Điện máy - Nội thất Chợ Lớn",
+        "address": "123 Đường Lớn, Quận 1, TP.HCM",
+        "hotline": "1800 1234",
+        "email": "lienhe@dienmayxanh.vn",
+        "website": "https://dienmayxanh.vn"
+    }
+
+
 def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
     """
     Xử lý tin nhắn người dùng:
@@ -99,6 +116,24 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
                             fc = part.function_call
                         if fc:
                             print(f"[INFO] ✅ Found function_call: {fc}")
+                            if hasattr(fc, 'name') and fc.name == 'get_store_info':
+                                # Kiểm tra nếu user hỏi về hãng khác, không phải cửa hàng
+                                lower_msg = message.lower()
+                                if any(kw in lower_msg for kw in ["samsung", "apple", "oppo", "xiaomi", "vivo", "realme", "asus", "sony", "nokia"]):
+                                    return {
+                                        "response": "Xin lỗi, tôi không có thông tin về trụ sở của hãng mà bạn hỏi. Vui lòng liên hệ hãng hoặc tìm kiếm trên website chính thức.",
+                                        "products": [],
+                                        "actions": None,
+                                        "timestamp": datetime.now().isoformat()
+                                    }
+                                store_info = get_store_info()
+                                return {
+                                    "response": f"Trụ sở chính: {store_info['address']}. Hotline: {store_info['hotline']}. Email: {store_info['email']}. Website: {store_info['website']}",
+                                    "store_info": store_info,
+                                    "products": [],
+                                    "actions": None,
+                                    "timestamp": datetime.now().isoformat()
+                                }
                             params = extract_gemini_args(fc)
                             print(f"[DEBUG] ✅ Params dict: {params}")
                             if not params:

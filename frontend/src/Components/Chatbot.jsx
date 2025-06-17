@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../index.css'; // Import global styles if needed
 import './Chatbot.css'; // Import Chatbot specific styles
+import { getOrCreateChatSessionId } from '../utils/chatSession';
+import { useCart } from '../context/CartContext';
+import { useNavigate } from 'react-router-dom';
+
 // Import các component khác nếu cần, ví dụ cho danh sách sản phẩm
 // import ProductListMessage from './ProductListMessage';
 
@@ -55,7 +59,7 @@ const Chatbot = ({ customerId }) => {
         }
 
         const apiUrl = 'http://127.0.0.1:8000/chat/';
-
+        const chatSessionId = getOrCreateChatSessionId();
         try {
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -65,7 +69,8 @@ const Chatbot = ({ customerId }) => {
                 },
                 body: JSON.stringify({
                     message: messageToSend,
-                    customer_id: customerId
+                    customer_id: customerId || 0,
+                    chat_session_id: chatSessionId
                 })
             });
 
@@ -169,18 +174,43 @@ const Chatbot = ({ customerId }) => {
     // Render message giống giao diện mẫu
     const renderMessage = (msg, index) => {
         if (msg.type === 'product_list' && Array.isArray(msg.data)) {
+            // Loại bỏ sản phẩm trùng lặp dựa trên id hoặc name
+            const uniqueProducts = [];
+            const seen = new Set();
+            for (const product of msg.data) {
+                const key = product.id || product.name || product.title;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueProducts.push(product);
+                }
+            }
             return (
                 <div key={index} className="chat-bubble bot-message product-list" style={{ background: '#f6fafd', border: '1px solid #e3f0ff', borderRadius: 8, margin: '8px 0', padding: 12 }}>
-                    <ol style={{ margin: 0, paddingLeft: 20 }}>
-                        {msg.data.map((product, i) => (
-                            <li key={i} style={{ marginBottom: 8 }}>
-                                <a href={product.url || '#'} target="_blank" rel="noopener noreferrer" style={{ color: '#2196f3', fontWeight: 600, textDecoration: 'underline' }}>{product.name}</a>
-                                {product.price && (
-                                    <span style={{ color: '#333', fontWeight: 400 }}> - Giá: {product.price.toLocaleString()} VNĐ</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                        {uniqueProducts.map((product, i) => (
+                            <div key={i} style={{ width: 170, border: '1px solid #e3f0ff', borderRadius: 8, background: '#fff', padding: 10, marginBottom: 8, boxShadow: '0 2px 8px #e3f0ff55' }}>
+                                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                                    <img src={product.image || product.image_url || '/vite.svg'} alt={product.title || product.name} style={{ width: 80, height: 80, objectFit: 'contain', background: '#f6fafd', borderRadius: 8 }} />
+                                </div>
+                                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4, minHeight: 36, color: '#222' }}>{product.title || product.name}</div>
+                                {product.short_description && <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>{product.short_description}</div>}
+                                <div style={{ fontSize: 16, color: '#e53935', fontWeight: 700, marginBottom: 2 }}>
+                                    {product.currentPrice ? product.currentPrice.toLocaleString() : product.price?.toLocaleString()} VNĐ
+                                </div>
+                                {product.price && product.currentPrice && product.currentPrice < product.price && (
+                                    <div style={{ fontSize: 13, color: '#888', textDecoration: 'line-through', marginBottom: 2 }}>{product.price.toLocaleString()} VNĐ</div>
                                 )}
-                            </li>
+                                {product.color && <div style={{ fontSize: 13, color: '#444', marginBottom: 2 }}>Màu: {product.color}</div>}
+                                {product.rating && <div style={{ fontSize: 13, color: '#fbc02d', marginBottom: 2 }}>★ {product.rating}</div>}
+                                <button style={{ marginTop: 8, width: '100%', background: '#2196f3', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 0', fontWeight: 600, cursor: 'pointer' }} onClick={() => addToCart(product)}>
+                                    <span role="img" aria-label="cart">🛒</span> Thêm vào giỏ
+                                </button>
+                                <button style={{ marginTop: 6, width: '100%', background: '#fff', color: '#2196f3', border: '1px solid #2196f3', borderRadius: 6, padding: '6px 0', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate(`/ProductDetail/${product.id}`)}>
+                                    Xem chi tiết
+                                </button>
+                            </div>
                         ))}
-                    </ol>
+                    </div>
                 </div>
             );
         }
@@ -199,6 +229,9 @@ const Chatbot = ({ customerId }) => {
             </div>
         );
     };
+
+    const { addToCart } = useCart();
+    const navigate = useNavigate();
 
     return (
         <div className="chat-container" style={{ position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000 }}>
