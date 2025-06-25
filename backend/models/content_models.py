@@ -64,5 +64,6 @@ class Product(Base):
     product_type = Column(String(50))  # e.g., 'newest', 'trending', 'best_seller'
     tag = Column(String(50), nullable=True)  # e.g., 'new', 'sale'
     currentPrice = Column(Float, nullable=True)
+    rating = Column(Float, default=0)  # Thêm trường rating
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     category = relationship("Category", back_populates="products")

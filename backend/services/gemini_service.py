@@ -49,11 +49,13 @@ def call_gemini_function_calling(function_schema, user_message, context=None, ge
             tools=function_schema
         )
         chat = model.start_chat(history=[])
-        # Bổ sung context hướng dẫn Gemini ưu tiên function_call
+        # Bổ sung context hướng dẫn Gemini ưu tiên function_call hợp lý
         smart_context = (
-            "Bạn là trợ lý bán hàng điện tử. Nếu người dùng hỏi về sản phẩm, điện thoại, laptop, phụ kiện, ... "
-            "hãy luôn trả về function_call search_products với các trường filter phù hợp (name, category, price, status, flash_sale, ...), "
-            "không trả về text thông thường nếu có thể. Nếu không đủ thông tin filter, hãy hỏi lại user để lấy đủ filter."
+            "Bạn là trợ lý bán hàng điện tử. "
+            "Nếu người dùng hỏi về sản phẩm (ví dụ: 'còn iPhone không', 'có laptop Dell không', 'còn hàng Samsung không', 'sản phẩm mới nhất', 'giá rẻ', 'điện thoại samsung', 'laptop dưới 10 triệu', v.v.), hãy luôn gọi function_call search_products với filter đơn giản nhất có thể (ví dụ: chỉ tên sản phẩm hoặc loại sản phẩm, hoặc status, giá, v.v.). "
+            "Trả về một danh sách tiêu biểu các sản phẩm hiện có trong kho phù hợp với yêu cầu đó. "
+            "Nếu kết quả quá nhiều, có thể gợi ý thêm cho khách hàng về mức giá, dung lượng, đời máy... để lọc tiếp. "
+            "Nếu người dùng hỏi về kiến thức chung, hãng lớn (Apple, Samsung, v.v.) hoặc hỏi xã giao (ví dụ: 'trụ sở iPhone ở đâu', 'chào bạn'), hãy trả lời tự nhiên bằng kiến thức của bạn, không gọi function_call. "
         )
         full_context = smart_context if not context else f"{smart_context}\n\n{context}"
         prompt = f"{full_context}\n\n{user_message}"

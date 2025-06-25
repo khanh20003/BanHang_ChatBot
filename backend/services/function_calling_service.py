@@ -1,31 +1,94 @@
+from services.constants import CATEGORY_SYNONYMS, INTENT_KEYWORDS, STOPWORDS, remove_accents
+from typing import List, Optional, Dict, Any, overload
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, func
 from models.content_models import Product, Category
-from typing import List, Optional, Dict, Any
-import re
 from rapidfuzz import process, fuzz
+from services.extract_search_params import extract_search_params
+
+
+def product_to_dict(p):
+    return {
+        "id": p.id,
+        "title": p.title,
+        "image": p.image,
+        "price": float(p.price),
+        "currentPrice": float(p.currentPrice) if p.currentPrice else None,
+        "status": p.status,
+        "stock": p.stock,
+        "category": {
+            "id": p.category.id,
+            "title": p.category.title,
+            "image": p.category.image if p.category else None
+        } if p.category else None,
+        "short_description": p.short_description,
+        "product_type": p.product_type,
+        "actions": [
+            {"type": "add_to_cart", "label": "Đặt hàng", "product_id": p.id}
+        ]
+    }
+
+
+@overload
+def search_products(
+    db: Session,
+    search_params: Dict[str, Any],
+    limit: int = 10
+) -> List[Product]: ...
+
 
 def search_products(
     db: Session,
     search_params: Dict[str, Any],
     limit: int = 10
 ) -> List[Product]:
-    query = db.query(Product)
-    query = query.filter(Product.status == 'active')
+    """
+    Tìm kiếm sản phẩm theo các tham số đã phân tích.
+    
+    Args:
+        db (Session): SQLAlchemy session.
+        search_params (Dict[str, Any]): Các tham số lọc, ví dụ:
+            - name: từ khóa tên
+            - category: danh mục
+            - min_price, max_price: khoảng giá
+            - status, rating, in_stock, is_flash_sale
+        limit (int): Số lượng sản phẩm tối đa trả về.
 
+    Returns:
+        List[Product]: Danh sách sản phẩm ORM object.
+    """
+
+    # Nếu có cả product_type và name, và name chỉ là từ ý định, loại bỏ name khỏi filter
+    if search_params.get('product_type') and search_params.get('name'):
+        name_noaccent = remove_accents(search_params['name']).strip()
+        intent_keywords_noaccent = [remove_accents(kw) for kw in INTENT_KEYWORDS]
+        if name_noaccent in intent_keywords_noaccent:
+            del search_params['name']
+    query = db.query(Product)
     has_filter = False
     filter_logs = []
     fuzzy_name = None
     fuzzy_mode = False
 
-    # Lọc theo tên sản phẩm (tìm kiếm gần đúng, không phân biệt hoa thường, bỏ khoảng trắng thừa)
+    # Lọc theo tên sản phẩm (tìm kiếm gần đúng, không phân biệt hoa thường, bỏ khoảng trắng thừa, không dấu cho từ khóa)
     if search_params.get('name'):
         name = search_params['name'].strip().lower()
-        query = query.filter(or_(Product.title.ilike(f'%{name}%'), Product.short_description.ilike(f'%{name}%')))
+        name_noaccent = remove_accents(name)
+        # Nếu name chỉ là 1 từ (ví dụ: 'iphone', 'oppo', 'macbook'), chỉ lọc theo title
+        if len(name.split()) == 1:
+            query = query.filter(
+                or_(func.lower(Product.title).ilike(f'%{name}%'), func.lower(Product.title).ilike(f'%{name_noaccent}%'))
+            )
+            filter_logs.append(f"title~='{name}' (noaccent: '{name_noaccent}') (strict)")
+        else:
+            # Nếu name có nhiều từ, vẫn ưu tiên lọc theo title, nhưng cho phép fuzzy ở bước sau nếu không có kết quả
+            query = query.filter(
+                or_(func.lower(Product.title).ilike(f'%{name}%'), func.lower(Product.title).ilike(f'%{name_noaccent}%'))
+            )
+            filter_logs.append(f"title~='{name}' (noaccent: '{name_noaccent}')")
         has_filter = True
-        filter_logs.append(f"name~='{name}'")
         fuzzy_name = name
-
+        # Nếu không tìm thấy sản phẩm theo title, mới thử tiếp short_description ở bước fuzzy phía dưới
     # Lọc theo mô tả ngắn
     if search_params.get('description'):
         description = search_params['description'].strip().lower()
@@ -43,8 +106,34 @@ def search_products(
         has_filter = True
         filter_logs.append(f"max_price<={search_params['max_price']}")
 
-    # Lọc theo trạng thái sản phẩm (product_type/status): hỗ trợ list hoặc string
-    if search_params.get('status'):
+    # Lọc theo product_type (ưu tiên nếu có)
+    if search_params.get('product_type'):
+        pt = search_params['product_type']
+        if isinstance(pt, list):
+            query = query.filter(Product.product_type.in_(pt))
+            filter_logs.append(f"product_type in {pt}")
+        else:
+            query = query.filter(Product.product_type == pt)
+            filter_logs.append(f"product_type='{pt}'")
+        has_filter = True
+
+    # Lọc theo category (nếu có) bằng category_id, chỉ fallback synonyms nếu KHÔNG tìm thấy category_id
+    if search_params.get('category'):
+        category_title = search_params['category'].strip().lower()
+        category_obj = db.query(Category).filter(func.lower(Category.title) == category_title).first()
+        if category_obj:
+            query = query.filter(Product.category_id == category_obj.id)
+            filter_logs.append(f"category_id={category_obj.id} ({category_obj.title})")
+            has_filter = True
+        else:
+            synonyms = CATEGORY_SYNONYMS.get(category_title, [category_title])
+            category_filters = [Product.category.has(Category.title.ilike(f"%{syn}%")) for syn in synonyms]
+            query = query.filter(or_(*category_filters))
+            filter_logs.append(f"category~synonyms={synonyms}")
+            has_filter = True
+
+    # Lọc theo trạng thái sản phẩm (status) nếu không có product_type
+    elif search_params.get('status'):
         status = search_params['status']
         if isinstance(status, list):
             query = query.filter(Product.product_type.in_(status))
@@ -61,12 +150,23 @@ def search_products(
         has_filter = True
         filter_logs.append(f"tag~='{tag}'")
 
-    # Lọc theo danh mục (theo tên category)
-    if search_params.get('category'):
-        category = search_params['category'].strip().lower()
-        query = query.filter(Product.category.has(Category.title.ilike(f"%{category}%")))
-        has_filter = True
-        filter_logs.append(f"category~='{category}'")
+    # Lọc theo danh mục (theo tên category, hỗ trợ từ đồng nghĩa phổ biến)
+    # ĐÃ ĐƯỢC XỬ LÝ Ở TRÊN, KHÔNG LỌC LẠI LẦN NỮA
+    # if search_params.get('category'):
+    #     category = search_params['category'].strip().lower()
+    #     # Danh sách từ đồng nghĩa phổ biến cho một số category lớn
+    #     category_synonyms = {
+    #         'điện thoại': ['điện thoại', 'phone', 'mobile', 'smartphone', 'cellphone', 'cell phone', 'mobiles'],
+    #         'laptop': ['laptop', 'notebook', 'máy tính xách tay'],
+    #         'máy tính bảng': ['máy tính bảng', 'tablet', 'ipad'],
+    #         # Có thể mở rộng thêm các nhóm khác nếu cần
+    #     }
+    #     synonyms = category_synonyms.get(category, [category])
+    #     # Tạo filter OR cho tất cả từ đồng nghĩa
+    #     category_filters = [Product.category.has(Category.title.ilike(f"%{syn}%")) for syn in synonyms]
+    #     query = query.filter(or_(*category_filters))
+    #     has_filter = True
+    #     filter_logs.append(f"category~synonyms={synonyms}")
 
     # Lọc theo rating
     if search_params.get('rating') is not None:
@@ -86,198 +186,69 @@ def search_products(
         has_filter = True
         filter_logs.append("in_stock=True")
 
+    # Sắp xếp theo giá cao/thấp nếu có sort_by
+    sort_by = search_params.get('sort_by')
+    if sort_by == 'price_desc':
+        query = query.order_by(Product.price.desc())
+        filter_logs.append('sort_by=price_desc')
+    elif sort_by == 'price_asc':
+        query = query.order_by(Product.price.asc())
+        filter_logs.append('sort_by=price_asc')
+
     if not has_filter:
         print('[DEBUG] ⚠️ Không có filter, không trả về toàn bộ sản phẩm.')
         return []
 
     print(f"[DEBUG] 🔎 Filter áp dụng: {', '.join(filter_logs)}")
-    query = query.limit(limit)
+    query = query.limit(limit * 2)  # Lấy nhiều hơn để dedup sau
     products = query.all()
-    # Nếu tìm theo name mà không ra sản phẩm, thử fuzzy search
+
+    # Deduplicate by product title (giữ sản phẩm đầu tiên với mỗi title)
+    seen_titles = set()
+    deduped_products = []
+    for p in products:
+        if p.title not in seen_titles:
+            deduped_products.append(p)
+            seen_titles.add(p.title)
+    products = deduped_products[:limit]
+
+    # Nếu tìm theo name mà không ra sản phẩm, thử fuzzy search với ngưỡng an toàn
     if fuzzy_name and not products:
         print('[DEBUG] 🟡 Không tìm thấy sản phẩm với ilike, thử fuzzy search...')
-        all_products = db.query(Product).filter(Product.status == 'active').all()
-        choices = [(f"{p.title} {p.short_description or ''}", p) for p in all_products]
-        results = process.extract(fuzzy_name, [c[0] for c in choices], scorer=fuzz.WRatio, limit=limit)
-        # Lấy các sản phẩm vượt ngưỡng 50
-        matched_titles = [r[0] for r in results if r[1] >= 50]
-        products = [p for t, p in choices if t in matched_titles]
-        # Nếu không có sản phẩm vượt ngưỡng, lấy sản phẩm có điểm số cao nhất (nếu có ít nhất 1 sản phẩm và điểm số >= 40)
-        if not products and results:
-            best_title, best_score = results[0][0], results[0][1]
-            if best_score >= 40:
-                products = [p for t, p in choices if t == best_title]
-                print(f"[DEBUG] ✅ Fuzzy search: trả về sản phẩm gần đúng nhất với điểm số {best_score}")
-            else:
-                print(f"[DEBUG] ❌ Fuzzy search: không có sản phẩm nào đủ gần đúng (score={best_score})")
-        fuzzy_mode = True
-    print(f"[DEBUG] ✅ Sản phẩm trả về sau filter: {[{'id': p.id, 'title': p.title, 'price': p.price, 'currentPrice': p.currentPrice} for p in products]}")
-    if not products:
-        print('[DEBUG] ❌ Không tìm thấy sản phẩm phù hợp với params:', search_params)
-    elif fuzzy_mode:
-        print('[DEBUG] ✅ Đã dùng fuzzy search cho trường name!')
+        # Nếu có category, chỉ fuzzy trong nhóm category đó
+        fuzzy_products_query = db.query(Product).filter(Product.status == 'active')
+        if search_params.get('category'):
+            category_title = search_params['category'].strip().lower()
+            category_obj = db.query(Category).filter(func.lower(Category.title) == category_title).first()
+            if category_obj:
+                fuzzy_products_query = fuzzy_products_query.filter(Product.category_id == category_obj.id)
+        all_products = fuzzy_products_query.all()
+        # Tách các từ khóa ý định ra khỏi fuzzy_name để chỉ lấy từ khóa thực sự
+        main_keywords = [kw for kw in fuzzy_name.split() if remove_accents(kw) not in [remove_accents(k) for k in INTENT_KEYWORDS]]
+        # Ưu tiên lọc brand: nếu main_keywords có từ khóa thương hiệu (ví dụ: 'samsung', 'oppo', 'xiaomi', ...), chỉ lấy sản phẩm có chứa từ đó trong title hoặc short_description
+        BRANDS = ['samsung', 'oppo', 'xiaomi', 'iphone', 'apple', 'realme', 'vivo', 'asus', 'nokia', 'sony', 'huawei', 'itel', 'mobell', 'masstel', 'lenovo', 'motorola']
+        brand_kw = None
+        for kw in main_keywords:
+            if any(b in remove_accents(kw).lower() for b in BRANDS):
+                brand_kw = kw
+                break
+        filtered_products = all_products
+        if brand_kw:
+            brand_kw_noaccent = remove_accents(brand_kw).lower()
+            filtered_products = [p for p in all_products if brand_kw.lower() in p.title.lower() or brand_kw_noaccent in remove_accents(p.title.lower()) or (p.short_description and (brand_kw.lower() in p.short_description.lower() or brand_kw_noaccent in remove_accents(p.short_description.lower())))]
+        else:
+            for kw in main_keywords:
+                kw_noaccent = remove_accents(kw)
+                filtered_products = [p for p in filtered_products if kw.lower() in p.title.lower() or kw_noaccent in remove_accents(p.title.lower()) or (p.short_description and (kw.lower() in p.short_description.lower() or kw_noaccent in remove_accents(p.short_description.lower())))]
+        # Nếu lọc ra được sản phẩm liên quan, chỉ fuzzy trong nhóm này
+        if filtered_products and main_keywords:
+            choices = [(f"{p.title} {p.short_description or ''}", p) for p in filtered_products]
+        else:
+            choices = [(f"{p.title} {p.short_description or ''}", p) for p in all_products]
+        # Sắp xếp theo độ tương đồng giảm dần với từ khóa chính
+        sorted_choices = sorted(choices, key=lambda x: fuzz.ratio(fuzzy_name, x[0]), reverse=True)
+        top_products = [c[1] for c in sorted_choices[:limit]]
+        products = top_products
+
     return products
-
-
-def extract_search_params(text: str) -> Dict[str, Any]:
-    import re
-
-    params = {}
-    text_lower = text.lower()
-
-    # Mapping từ khóa sang filter thông minh
-    if any(kw in text_lower for kw in ["bán chạy", "best seller", "best_seller"]):
-        params["status"] = "best_seller"
-    if any(kw in text_lower for kw in ["trending", "hot", "thịnh hành"]):
-        params["status"] = "trending"
-    if any(kw in text_lower for kw in ["mới", "new", "newest"]):
-        params["status"] = "newest"
-    if any(kw in text_lower for kw in ["giảm giá", "flash sale", "sale", "đang giảm"]):
-        params["is_flash_sale"] = True
-    if any(kw in text_lower for kw in ["rẻ", "giá rẻ", "giá thấp", "dưới", "khoảng"]):
-        params["max_price"] = 500  # Giả định giá rẻ là dưới 500
-    if any(kw in text_lower for kw in ["còn hàng", "có hàng", "in stock"]):
-        params["in_stock"] = True
-
-    # Tách giá
-    min_price, max_price = extract_price_range(text)
-    if min_price is not None:
-        params['min_price'] = min_price
-    if max_price is not None:
-        params['max_price'] = max_price
-
-    # Tách trạng thái (nếu chưa có status)
-    if 'status' not in params:
-        status = extract_status(text)
-        if status:
-            params['status'] = status
-
-    # Danh sách category bạn muốn hỗ trợ
-    possible_categories = ['laptop', 'điện thoại', 'máy tính bảng', 'tai nghe', 'phụ kiện']
-
-    # Tìm category nào xuất hiện trong câu
-    found_category = None
-    for cat in possible_categories:
-        if cat in text_lower:
-            found_category = cat
-            break
-
-    if found_category:
-        params['category'] = found_category
-        # Xoá category ra khỏi text để tránh gán vào name
-        text_lower = text_lower.replace(found_category, '')
-
-    # Bóc tách các từ quan trọng làm name (loại bỏ từ rác)
-    stopwords = ['các', 'sản', 'phẩm', 'thuộc', 'danh', 'mục', 'hàng', 'tìm', 'kiếm', 'giá', 'bao', 'nhiêu']
-    words = text_lower.split()
-    product_words = []
-    for word in words:
-        if word.strip() and word not in stopwords and not any(unit in word for unit in ['triệu', 'tr', 'm', 'nghìn', 'k', 'đồng', 'vnd', 'vnđ']):
-            product_words.append(word)
-
-    if product_words:
-        params['name'] = ' '.join(product_words).strip()
-
-    # Nếu name chỉ còn trống hoặc toàn khoảng trắng thì bỏ luôn
-    if 'name' in params and not params['name']:
-        params.pop('name')
-
-    return params
-
-
-
-def extract_price_range(text: str) -> tuple[Optional[float], Optional[float]]:
-    text = text.lower()
-    min_price = None
-    max_price = None
-    price_patterns = [
-        r'(\d+(?:\.\d+)?)\s*(?:triệu|tr|m)',
-        r'(\d+(?:\.\d+)?)\s*(?:nghìn|k)',
-        r'(\d+(?:\.\d+)?)\s*(?:đồng|vnd|vnđ)'
-    ]
-
-    if 'từ' in text or 'trên' in text:
-        for pattern in price_patterns:
-            matches = re.findall(pattern, text)
-            if matches:
-                value = float(matches[0])
-                if 'triệu' in text or 'tr' in text or 'm' in text:
-                    min_price = value * 1_000_000
-                elif 'nghìn' in text or 'k' in text:
-                    min_price = value * 1_000
-                else:
-                    min_price = value
-                break
-
-    if 'đến' in text or 'dưới' in text or 'khoảng' in text:
-        for pattern in price_patterns:
-            matches = re.findall(pattern, text)
-            if matches:
-                value = float(matches[0])
-                if 'triệu' in text or 'tr' in text or 'm' in text:
-                    max_price = value * 1_000_000
-                elif 'nghìn' in text or 'k' in text:
-                    max_price = value * 1_000
-                else:
-                    max_price = value
-                break
-    return min_price, max_price
-
-
-def extract_status(text: str) -> Optional[str]:
-    text = text.lower()
-    status_patterns = {
-        r'(?:mới|mới nhất|newest)': 'newest',
-        r'(?:hot|thịnh hành|trending)': 'trending',
-        r'(?:bán chạy|bán chạy nhất|best_seller)': 'best_seller'
-    }
-    for pattern, status in status_patterns.items():
-        if re.search(pattern, text):
-            return status
-    return None
-
-
-def process_message_with_function_calling(message: str, db) -> Dict[str, Any]:
-    params = extract_search_params(message)
-
-    # Nếu KHÔNG có params gì cụ thể => gợi ý sản phẩm trending/newest
-    if not params:
-        print('[DEBUG] ❗️ Không có params cụ thể => fallback sản phẩm trending')
-        query = db.query(Product).filter(Product.status.in_(["trending", "newest"])).limit(10)
-        products = query.all()
-    else:
-        products = search_products(db, params, limit=10)
-
-    product_list = []
-    for p in products:
-        product_dict = {
-            "id": p.id,
-            "title": p.title,
-            "image": p.image,
-            "price": float(p.price),
-            "currentPrice": float(p.currentPrice) if p.currentPrice else None,
-            "status": p.status,
-            "stock": p.stock,
-            "category": {
-                "id": p.category.id,
-                "title": p.category.title,
-                "image": p.category.image if p.category else None
-            } if p.category else None,
-            "short_description": p.short_description,
-            "product_type": p.product_type,
-            "actions": [
-                {
-                    "type": "add_to_cart",
-                    "label": "Đặt hàng",
-                    "product_id": p.id
-                }
-            ]
-        }
-        product_list.append(product_dict)
-
-    return {
-        "response": "Tìm thấy {} sản phẩm phù hợp.".format(len(product_list)) if product_list else "Hiện chưa tìm thấy sản phẩm phù hợp.",
-        "products": product_list,
-        "actions": None
-    }
 

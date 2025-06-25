@@ -26,6 +26,7 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     tag = Column(String, nullable=True)          # 'new', 'sale', ...
     short_description = Column(String, nullable=True)
+    rating = Column(Float, nullable=True)  # Thêm trường rating
 
 class Banner(Base):
     __tablename__ = "banners"
