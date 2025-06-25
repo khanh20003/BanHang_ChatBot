@@ -101,6 +101,11 @@ def product_to_dict(p):
     }
 
 
+def is_discount_query(message: str) -> bool:
+    keywords = ["giảm giá", "flash sale", "sale", "khuyến mãi", "ưu đãi"]
+    return any(kw in message.lower() for kw in keywords)
+
+
 def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
     """
     Xử lý tin nhắn người dùng:
@@ -136,43 +141,27 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
 
                         if fc:
                             params = extract_gemini_args(fc)
-                            # Nếu không có product_type, fallback extract_search_params để lấy đúng ý định
-                            if not params or not params.get('product_type'):
+                            if not params or not (params.get('product_type') or params.get('status')):
                                 params = extract_search_params(message)
-                            # ✅ Dùng params này để gọi search_products trực tiếp
                             products = search_products(db, params, limit=10)
 
-                            # Fallback mở rộng: nếu không có sản phẩm, ưu tiên trả về sản phẩm liên quan (fuzzy), nếu vẫn không có thì chỉ trả về trending/newest và luôn có chú thích rõ ràng
-                            if not products:
-                                # Fuzzy search sản phẩm liên quan
-                                related_products = []
-                                if params.get('name'):
-                                    name = params['name'].strip().lower()
-                                    all_products = db.query(Product).filter(Product.status == 'active').all()
-                                    choices = [(f"{p.title} {p.short_description or ''}", p) for p in all_products]
-                                    results = process.extract(name, [c[0] for c in choices], scorer=fuzz.WRatio, limit=5)
-                                    related_titles = [r[0] for r in results if r[1] >= 60]
-                                    related_products = [p for t, p in choices if t in related_titles]
-                                if related_products:
+                            # Lọc sản phẩm theo product_type hoặc status nếu có
+                            product_type = params.get('product_type') or params.get('status')
+                            if product_type:
+                                filtered_products = [p for p in products if getattr(p, "product_type", None) == product_type]
+                                if filtered_products:
                                     return {
-                                        "response": "Không tìm thấy sản phẩm đúng yêu cầu, nhưng đây là một số sản phẩm liên quan để bạn tham khảo:",
-                                        "products": [product_to_dict(p) for p in related_products],
+                                        "response": f"Tìm thấy {len(filtered_products)} sản phẩm loại {product_type} phù hợp.",
+                                        "products": [product_to_dict(p) for p in filtered_products],
                                         "actions": None
                                     }
-                                # Nếu không có sản phẩm liên quan, trả về sản phẩm nổi bật (chỉ trending/newest) kèm chú thích rõ ràng
-                                products = db.query(Product).filter(Product.product_type.in_(["trending", "newest"]))\
-                                    .order_by(Product.id.desc()).limit(5).all()
+                            # Nếu không có product_type, trả về tất cả products như cũ
+                            if products:
                                 return {
-                                    "response": "Hiện tại chưa có sản phẩm đúng yêu cầu. Dưới đây là một số sản phẩm nổi bật (trending, mới nhất) để bạn tham khảo:",
+                                    "response": f"Tìm thấy {len(products)} sản phẩm phù hợp.",
                                     "products": [product_to_dict(p) for p in products],
                                     "actions": None
                                 }
-
-                            return {
-                                "response": f"Tìm thấy {len(products)} sản phẩm phù hợp.",
-                                "products": [product_to_dict(p) for p in products],
-                                "actions": None
-                            }
 
                         # Nếu part là text (trả về chat thường)
                         text = part.get('text') if isinstance(part, dict) else (getattr(part, 'text', None))

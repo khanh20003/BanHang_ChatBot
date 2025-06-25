@@ -13,18 +13,37 @@ if not GEMINI_API_KEY:
 # Khởi tạo Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Hàm trả lời chat thông thường
-def generate_gemini_response(message: str) -> str:
+# Hàm trả lời chat thông thường, bổ sung context nếu có
+def generate_gemini_response(message: str, context: dict = None) -> str:
     try:
-        # ✅ DÙNG MODEL CÓ SẴN
         model = genai.GenerativeModel(model_name='gemini-1.5-flash')
-        prompt = (
-            f"Bạn là nhân viên bán hàng điện tử, hãy tư vấn ngắn gọn, thân thiện, chuyên nghiệp.\n\n"
-            f"Khách hàng hỏi: {message}\n\nTrả lời:"
-        )
+        # Xây dựng prompt linh hoạt, không ép chào hỏi, tập trung vào tư vấn tự nhiên
+        if context:
+            product_list = context.get('products')
+            product_text = ""
+            if product_list:
+                product_text = "\n\nDanh sách sản phẩm phù hợp cho khách hàng (nếu có):\n" + "\n".join([
+                    f"- {p.get('title', '')} (giá: {p.get('currentPrice', p.get('price', ''))}₫)" for p in product_list
+                ])
+            actions = context.get('actions')
+            action_text = f"\n\nHành động gợi ý: {actions}" if actions else ""
+            # Không ép chào hỏi, chỉ nhấn mạnh trả lời tự nhiên, đúng trọng tâm, có thể hỏi lại khách nếu cần
+            prompt = (
+                f"Bạn là nhân viên tư vấn bán hàng điện tử. Hãy trả lời thật tự nhiên, thân thiện, đúng trọng tâm, tránh lặp lại câu chào hỏi nếu không cần thiết.\n"
+                f"Khách hàng hỏi: {message}\n"
+                f"Kết quả phân tích logic hệ thống (nếu có):\n{context.get('response', '')}{product_text}{action_text}\n"
+                f"Nếu không có sản phẩm phù hợp, hãy tư vấn tự nhiên, gợi ý nhóm sản phẩm nổi bật hoặc hỏi lại khách hàng về nhu cầu cụ thể.\n"
+                f"Chỉ chào hỏi khi thực sự cần thiết (ví dụ: lần đầu trò chuyện).\n"
+                f"Trả lời:"
+            )
+        else:
+            prompt = (
+                f"Bạn là nhân viên tư vấn bán hàng điện tử. Hãy trả lời thật tự nhiên, thân thiện, đúng trọng tâm, tránh lặp lại câu chào hỏi nếu không cần thiết.\n"
+                f"Khách hàng hỏi: {message}\n\nTrả lời:"
+            )
         response = model.generate_content(prompt)
         if hasattr(response, 'text') and response.text:
-            return response.text
+            return response.text.strip()
         return "Xin lỗi, tôi không thể trả lời câu hỏi này lúc này."
     except Exception as e:
         print(f"[generate_gemini_response] Error: {e}")

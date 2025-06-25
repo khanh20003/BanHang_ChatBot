@@ -38,14 +38,19 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
 
         # Tìm câu trả lời từ chatbot logic
         logic_response = process_user_message(request.message, request.customer_id)
-        if logic_response:
-            response_text = logic_response.get("response")
-            products = logic_response.get("products")
-            actions = logic_response.get("actions")
-        else:
-            response_text = generate_gemini_response(request.message)
-            products = None
-            actions = None
+        # Truyền context phong phú cho Gemini để sinh câu trả lời tự nhiên theo ngữ cảnh
+        response_text = generate_gemini_response(
+            request.message,
+            context={
+                "user_message": request.message,
+                "products": logic_response.get("products") if logic_response else None,
+                "actions": logic_response.get("actions") if logic_response else None,
+                "chat_session_id": session.chat_session_id,
+                # Có thể bổ sung thêm các trường khác nếu cần
+            }
+        )
+        products = logic_response.get("products") if logic_response else None
+        actions = logic_response.get("actions") if logic_response else None
 
         # Lưu câu trả lời
         bot_msg = ChatMessage(session_id=session.id, sender="bot", message=response_text)
