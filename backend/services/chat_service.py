@@ -131,6 +131,8 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
                                 params = extract_search_params(message)
                             except Exception as e:
                                 print(f"[CHAT ERROR] extract_search_params: {e}")
+                        # Thêm log debug params sau khi extract
+                        print("[DEBUG] search_params:", params)
                         if params:
                             try:
                                 products = search_products(db, params, limit=10)
