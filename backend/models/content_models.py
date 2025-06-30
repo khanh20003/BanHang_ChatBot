@@ -67,3 +67,5 @@ class Product(Base):
     rating = Column(Float, default=0)  # Thêm trường rating
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     category = relationship("Category", back_populates="products")
+    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
+    brand = relationship("Brand")

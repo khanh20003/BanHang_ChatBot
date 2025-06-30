@@ -9,6 +9,7 @@ INTENT_KEYWORDS = [
     'bán chạy', 'best seller', 'best_seller', 'giảm giá', 'giảm', 'flash sale', 'sale', 'mới nhất', 'newest', 'trending', 'hot', 'thịnh hành'
 ]
 STOPWORDS = ['toi', 'tôi', 'muon', 'muốn', 'mua', 'các', 'sản', 'phẩm', 'thuộc', 'danh', 'mục', 'hàng', 'tìm', 'kiếm', 'giá', 'bao', 'nhiêu']
+DISCOUNT_KEYWORDS = ['giảm giá', 'sale', 'flash sale', 'khuyến mãi', 'ưu đãi']
 
 def remove_accents(input_str):
     nfkd_form = unicodedata.normalize('NFKD', input_str)

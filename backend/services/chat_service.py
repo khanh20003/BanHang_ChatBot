@@ -3,8 +3,8 @@ from datetime import datetime
 import json
 from google.protobuf.json_format import MessageToDict
 from database.database import SessionLocal
-from services.function_calling_service import search_products, extract_search_params
-from services.gemini_service import call_gemini_function_calling
+from services.function_calling_service import search_products, extract_search_params, is_discount_product
+from services.gemini_service import call_gemini_function_calling, detect_product_intent, generate_gemini_response
 from models.content_models import Product
 from rapidfuzz import process, fuzz
 
@@ -34,30 +34,21 @@ function_schema = [
     }
 ]
 
-
-# Hàm này nhận object function_call (fc) mà Gemini trả về
-# Mục đích: bóc tách phần args (params) từ fc để lấy ra các tham số lọc sản phẩm
-# Vì fc là object phức tạp, chỉ phần args mới chứa thông tin cần thiết cho search_products
-# Không truyền trực tiếp fc vào search_products, chỉ truyền params đã tách ra
 def extract_gemini_args(fc):
-    # Nếu args là dict (Gemini trả về dạng dict)
     if isinstance(fc.args, dict) and fc.args:
         return fc.args
-    # Nếu args là object nhưng có __iter__ (có thể ép dict)
     try:
         d = dict(fc.args)
         if d:
             return d
     except Exception:
         pass
-    # Nếu là protobuf message
     try:
         d = MessageToDict(fc.args)
         if d:
             return d
     except Exception:
         pass
-    # Nếu là protobuf map
     params = {}
     if hasattr(fc.args, "fields"):
         fields_obj = fc.args.fields
@@ -77,7 +68,6 @@ def extract_gemini_args(fc):
                     if value not in (None, "", [], {}):
                         params[k] = value
     return params
-
 
 def product_to_dict(p):
     return {
@@ -100,34 +90,26 @@ def product_to_dict(p):
         ]
     }
 
-
 def is_discount_query(message: str) -> bool:
     keywords = ["giảm giá", "flash sale", "sale", "khuyến mãi", "ưu đãi"]
     return any(kw in message.lower() for kw in keywords)
 
-
 def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
-    """
-    Xử lý tin nhắn người dùng:
-    - Gọi Gemini Function Calling với schema.
-    - Nếu Gemini trả về function_call, lấy params và gọi search_products.
-    - Nếu không có function_call, trả về câu trả lời tự nhiên.
-    - Nếu không có params, fallback trending/newest.
-
-    Args:
-        message (str): Tin nhắn người dùng.
-        user_id (int): ID người dùng.
-
-    Returns:
-        Dict[str, Any]: Kết quả gồm:
-            - response: Câu trả lời văn bản.
-            - products: Danh sách sản phẩm đã format JSON.
-            - actions: Hành động khuyến nghị (nếu có).
-    """
     db = SessionLocal()
     try:
-        gemini_response = call_gemini_function_calling(function_schema, message)
+        # 🧠 Kiểm tra ý định
+        is_product_query = detect_product_intent(message)
+        if not is_product_query:
+            response_text = generate_gemini_response(message)
+            return {
+                "response": response_text,
+                "products": [],
+                "actions": None,
+                "timestamp": datetime.now().isoformat()
+            }
 
+        # ✅ Tiếp tục nếu là truy vấn về sản phẩm
+        gemini_response = call_gemini_function_calling(function_schema, message)
         if hasattr(gemini_response, 'candidates'):
             for candidate in gemini_response.candidates:
                 content = getattr(candidate, 'content', None)
@@ -138,57 +120,88 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
                             fc = part['function_call']
                         elif not isinstance(part, dict) and hasattr(part, 'function_call') and part.function_call:
                             fc = part.function_call
-
+                        params = None
                         if fc:
-                            params = extract_gemini_args(fc)
-                            if not params or not (params.get('product_type') or params.get('status')):
+                            try:
+                                params = extract_gemini_args(fc)
+                            except Exception as e:
+                                print(f"[CHAT ERROR] extract_gemini_args: {e}")
+                        if not params:
+                            try:
                                 params = extract_search_params(message)
-                            products = search_products(db, params, limit=10)
-
-                            # Lọc sản phẩm theo product_type hoặc status nếu có
-                            product_type = params.get('product_type') or params.get('status')
-                            if product_type:
-                                filtered_products = [p for p in products if getattr(p, "product_type", None) == product_type]
-                                if filtered_products:
-                                    return {
-                                        "response": f"Tìm thấy {len(filtered_products)} sản phẩm loại {product_type} phù hợp.",
-                                        "products": [product_to_dict(p) for p in filtered_products],
-                                        "actions": None
-                                    }
-                            # Nếu không có product_type, trả về tất cả products như cũ
+                            except Exception as e:
+                                print(f"[CHAT ERROR] extract_search_params: {e}")
+                        if params:
+                            try:
+                                products = search_products(db, params, limit=10)
+                            except Exception as e:
+                                print(f"[CHAT ERROR] search_products: {e}")
+                                products = []
+                            is_discount = params.get('is_flash_sale') or is_discount_query(message)
+                            if is_discount:
+                                try:
+                                    products = [p for p in products if is_discount_product(p)]
+                                except Exception as e:
+                                    print(f"[CHAT ERROR] is_discount_product: {e}")
+                            elif params.get('product_type') in ['newest', 'best_seller', 'trending']:
+                                pt = params['product_type']
+                                try:
+                                    products = [p for p in products if p.product_type == pt or (isinstance(pt, list) and p.product_type in pt)]
+                                except Exception as e:
+                                    print(f"[CHAT ERROR] product_type filter: {e}")
                             if products:
                                 return {
                                     "response": f"Tìm thấy {len(products)} sản phẩm phù hợp.",
                                     "products": [product_to_dict(p) for p in products],
-                                    "actions": None
+                                    "actions": None,
+                                    "timestamp": datetime.now().isoformat()
                                 }
-
-                        # Nếu part là text (trả về chat thường)
-                        text = part.get('text') if isinstance(part, dict) else (getattr(part, 'text', None))
+                            else:
+                                return {
+                                    "response": "Xin lỗi, không tìm thấy sản phẩm phù hợp.",
+                                    "products": [],
+                                    "actions": None,
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                        text = part.get('text') if isinstance(part, dict) else getattr(part, 'text', None)
                         if text:
-                            if "ready to assist" in text.lower() or "i will use the" in text.lower():
-                                continue
-                            try:
-                                text_data = json.loads(text)
-                                if isinstance(text_data, dict):
-                                    return text_data
-                            except Exception:
-                                pass
+                            fallback_products = db.query(Product).filter(Product.stock > 0).order_by(Product.rating.desc(), Product.currentPrice.asc()).limit(10).all()
                             return {
-                                "response": text,
-                                "products": [],
+                                "response": text + "\n\nShop gợi ý một số sản phẩm nổi bật cho anh/chị tham khảo:",
+                                "products": [product_to_dict(p) for p in fallback_products],
                                 "actions": None,
                                 "timestamp": datetime.now().isoformat()
                             }
-
-        # ✅ Fallback: không có function_call → không có text → trả câu xin lỗi
+        params = extract_search_params(message)
+        if params:
+            products = search_products(db, params, limit=10)
+            is_discount = params.get('is_flash_sale') or is_discount_query(message)
+            if is_discount:
+                products = [p for p in products if is_discount_product(p)]
+            elif params.get('product_type') in ['newest', 'best_seller', 'trending']:
+                pt = params['product_type']
+                products = [p for p in products if p.product_type == pt or (isinstance(pt, list) and p.product_type in pt)]
+            if products:
+                return {
+                    "response": f"Tìm thấy {len(products)} sản phẩm phù hợp.",
+                    "products": [product_to_dict(p) for p in products],
+                    "actions": None,
+                    "timestamp": datetime.now().isoformat()
+                }
+            fallback_types = ['best_seller', 'newest', 'trending']
+            fallback_products = db.query(Product).filter(Product.product_type.in_(fallback_types), Product.stock > 0).limit(10).all()
+            return {
+                "response": "Shop gợi ý một số sản phẩm nổi bật cho anh/chị tham khảo:",
+                "products": [product_to_dict(p) for p in fallback_products],
+                "actions": None,
+                "timestamp": datetime.now().isoformat()
+            }
         return {
             "response": "Xin lỗi, tôi chưa hiểu yêu cầu của bạn. Bạn có thể nói rõ hơn không?",
             "products": [],
             "actions": None,
             "timestamp": datetime.now().isoformat()
         }
-
     except Exception as e:
         import traceback
         print(f"[ERROR] ❌ Exception occurred: {e}")
@@ -199,8 +212,6 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
             "actions": None,
             "timestamp": datetime.now().isoformat()
         }
-
     finally:
         db.close()
         print("[INFO] ✅ Database session closed.")
-

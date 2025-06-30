@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from models.content_models import Product
+from models.content_models import Product, Category
 from typing import List, Optional, Dict, Any
 import re
 
@@ -12,50 +12,54 @@ def search_products(
     """
     Tìm kiếm sản phẩm với các tham số tìm kiếm
     search_params có thể chứa các key sau:
-    - name: tên sản phẩm
-    - description: mô tả sản phẩm
+    - name: tên sản phẩm hoặc từ khóa (ví dụ: samsung)
+    - category: danh mục sản phẩm (ví dụ: điện thoại)
     - min_price: giá tối thiểu
     - max_price: giá tối đa
     - status: trạng thái sản phẩm
-    - category: danh mục sản phẩm
     - rating: đánh giá tối thiểu
     - is_flash_sale: tìm sản phẩm đang giảm giá
     """
     # Xây dựng query cơ bản
     query = db.query(Product)
-    
-    # Thêm điều kiện tìm kiếm theo tên
+
+    # Lọc theo danh mục (category)
+    if search_params.get('category'):
+        category = search_params['category'].strip().lower()
+        query = query.join(Product.category).filter(Category.title.ilike(f"%{category}%"))
+
+    # Lọc theo từ khóa tên sản phẩm (name)
     if search_params.get('name'):
         name = search_params['name'].strip().lower()
-        query = query.filter(Product.name.ilike(f'%{name}%'))
-    
-    # Thêm điều kiện tìm kiếm theo mô tả
+        query = query.filter(Product.title.ilike(f"%{name}%"))
+
+    # Lọc theo mô tả
     if search_params.get('description'):
         description = search_params['description'].strip().lower()
-        query = query.filter(Product.description.ilike(f'%{description}%'))
-    
-    # Thêm điều kiện giá
+        query = query.filter(Product.short_description.ilike(f"%{description}%"))
+
+    # Lọc theo giá
     if search_params.get('min_price') is not None:
         query = query.filter(Product.price >= search_params['min_price'])
     if search_params.get('max_price') is not None:
         query = query.filter(Product.price <= search_params['max_price'])
-    
-    # Thêm điều kiện trạng thái
+
+    # Lọc theo trạng thái
     if search_params.get('status'):
         query = query.filter(Product.status == search_params['status'])
-    
-    # Thêm điều kiện danh mục
-    if search_params.get('category'):
-        query = query.filter(Product.category == search_params['category'])
-    
-    # Thêm điều kiện đánh giá
+
+    # Lọc theo loại sản phẩm
+    if search_params.get('product_type'):
+        query = query.filter(Product.product_type == search_params['product_type'])
+
+    # Lọc theo đánh giá
     if search_params.get('rating') is not None:
         query = query.filter(Product.rating >= search_params['rating'])
-    
-    # Thêm điều kiện sản phẩm giảm giá
+
+    # Lọc sản phẩm giảm giá
     if search_params.get('is_flash_sale'):
-        query = query.filter(Product.current_price < Product.price)
-    
+        query = query.filter(Product.currentPrice < Product.price)
+
     # Giới hạn số lượng kết quả
     query = query.limit(limit)
     
@@ -154,4 +158,4 @@ def extract_status(text: str) -> Optional[str]:
         if re.search(pattern, text):
             return status
     
-    return None 
+    return None

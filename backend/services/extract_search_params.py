@@ -1,6 +1,28 @@
 from services.constants import INTENT_KEYWORDS, STOPWORDS, remove_accents
 import re
 from typing import Optional, Dict, Any
+import string
+from rapidfuzz import process, fuzz
+
+
+def fuzzy_match(query: str, choices: list, threshold: int = 65) -> Optional[str]:
+    """
+    Fuzzy match cho brand/category, trả về chuỗi khớp tốt nhất nếu score đủ lớn.
+    Tăng độ nhạy sửa lỗi chính tả bằng cách giảm threshold và thử match từng từ trong câu.
+    """
+    query_norm = remove_accents(query.lower())
+    choices_norm = [remove_accents(c.lower()) for c in choices]
+    # Thử match toàn bộ câu
+    match, score, idx = process.extractOne(query_norm, choices_norm, scorer=fuzz.ratio)
+    if match and score >= threshold:
+        return choices[idx]
+    # Nếu không đủ score, thử match từng từ
+    for word in query_norm.split():
+        match, score, idx = process.extractOne(word, choices_norm, scorer=fuzz.ratio)
+        if match and score >= threshold:
+            return choices[idx]
+    return None
+
 
 def extract_search_params(text: str) -> Dict[str, Any]:
     params = {}
@@ -9,63 +31,78 @@ def extract_search_params(text: str) -> Dict[str, Any]:
     text_lower = text.lower()
     text_lower_noaccent = remove_accents(text_lower)
     intent_keywords_noaccent = [remove_accents(kw) for kw in INTENT_KEYWORDS]
-    # Nếu là các câu tổng quát xem tất cả sản phẩm/shop thì không filter name
+
+    # Các cụm tổng quát không nên filter theo name
     general_phrases = [
         "xem tat ca", "xem tất cả", "toan bo shop", "toàn bộ shop", "toan bo san pham", "toàn bộ sản phẩm",
         "tat ca san pham", "tất cả sản phẩm", "co gi trong shop", "có gì trong shop", "xem shop", "xem sản phẩm"
     ]
     if any(phrase in text_lower_noaccent for phrase in general_phrases):
+        possible_categories = ['laptop', 'điện thoại', 'máy tính bảng', 'tai nghe', 'phụ kiện']
+        possible_categories_noaccent = [remove_accents(cat) for cat in possible_categories]
+        for cat, cat_noaccent in zip(possible_categories, possible_categories_noaccent):
+            if cat in text_lower or cat_noaccent in text_lower_noaccent:
+                params['category'] = cat
+                break
         return params
-    # Ánh xạ ý định mềm cho các trường hợp phổ biến
-    if re.search(r"giảm giá|flash sale|sale|đang giảm", text_lower):
+
+    # Gắn cờ intent sản phẩm đặc biệt
+    if re.search(r"flash\s?sale|flash_sale", text_lower):
         params["product_type"] = "flash_sale"
+    elif re.search(r"giảm giá|sale|khuyến mãi|ưu đãi|đang giảm", text_lower):
+        params["is_flash_sale"] = True
     elif re.search(r"bán chạy|best\s?seller|best_seller", text_lower):
         params["product_type"] = "best_seller"
     elif re.search(r"mới nhất|newest|mới", text_lower):
         params["product_type"] = "newest"
     elif re.search(r"trending|hot|thịnh hành", text_lower):
         params["product_type"] = "trending"
+
+    # Danh sách brand phổ biến
+    possible_brands = ['iphone', 'samsung', 'oppo', 'xiaomi', 'vivo', 'realme', 'asus', 'nokia', 'huawei', 'lenovo', 'macbook', 'ipad', 'airpods', 'sony', 'anker', 'baseus']
+    found_brand = fuzzy_match(text, possible_brands)
+    if found_brand:
+        params['brand'] = found_brand
+        # Loại brand đã nhận diện khỏi text để tránh ảnh hưởng đến name
+        text_lower_noaccent = text_lower_noaccent.replace(remove_accents(found_brand.lower()), "")
+
+    # Danh sách category phổ biến
     possible_categories = ['laptop', 'điện thoại', 'máy tính bảng', 'tai nghe', 'phụ kiện']
-    possible_categories_noaccent = [remove_accents(cat) for cat in possible_categories]
-    found_category = None
-    found_category_span = None
-    for cat, cat_noaccent in zip(possible_categories, possible_categories_noaccent):
-        idx = text_lower.find(cat)
-        idx_noaccent = text_lower_noaccent.find(cat_noaccent)
-        if idx != -1:
-            found_category = cat
-            found_category_span = (idx, idx + len(cat))
-            break
-        elif idx_noaccent != -1:
-            found_category = cat
-            found_category_span = (idx_noaccent, idx_noaccent + len(cat_noaccent))
-            break
-    if found_category and found_category_span:
-        name_candidate = text_lower.strip()
-        name_wo_category = name_candidate.replace(found_category, '').strip()
-        name_wo_category = name_wo_category.replace(found_category.replace(' ', ''), '').strip()
-        name_words = [w for w in name_wo_category.split() if w]
-        name_words_no_intent = [w for w in name_words if not any(kw in w for kw in INTENT_KEYWORDS)]
-        if name_words_no_intent:
-            params['name'] = ' '.join(name_words_no_intent)
+    found_category = fuzzy_match(text, possible_categories)
+    if found_category:
         params['category'] = found_category
-    else:
-        stopwords_noaccent = [remove_accents(w) for w in STOPWORDS]
-        product_words = [w for w in text_lower_noaccent.split() if w and w not in stopwords_noaccent]
-        product_words_no_intent = [w for w in product_words if w not in intent_keywords_noaccent]
-        if product_words_no_intent:
-            params['name'] = ' '.join(product_words_no_intent).strip()
-    if 'name' in params:
-        name_noaccent = remove_accents(params['name']).strip()
-        if name_noaccent in intent_keywords_noaccent or not name_noaccent:
-            params.pop('name')
+        text_lower_noaccent = text_lower_noaccent.replace(remove_accents(found_category.lower()), "")
+
+    # Gán name nếu có từ còn lại sau khi loại bỏ intent, stopword, brand/category
+    stopwords_noaccent = [remove_accents(w) for w in STOPWORDS]
+    all_keywords = set(stopwords_noaccent + intent_keywords_noaccent)
+    text_clean = text_lower_noaccent.translate(str.maketrans('', '', string.punctuation))
+    product_words = [w for w in text_clean.split() if w and w not in all_keywords]
+    if product_words:
+        params['name'] = ' '.join(product_words).strip()
+
     # Giá
     min_price, max_price = extract_price_range(text)
     if min_price is not None:
         params['min_price'] = min_price
     if max_price is not None:
         params['max_price'] = max_price
+
+    # Ý định còn hàng
+    in_stock_keywords = [
+        "còn hàng", "có hàng", "in stock", "còn mua được", "còn không", "còn bán không", "còn không vậy", "còn không shop"
+    ]
+    if any(kw in text_lower for kw in in_stock_keywords):
+        params["in_stock"] = True
+
+    # Nếu name chỉ còn keyword vô nghĩa thì loại bỏ
+    if 'name' in params:
+        name_noaccent = remove_accents(params['name']).strip()
+        if name_noaccent in all_keywords or not name_noaccent:
+            params.pop('name')
+
     return params
+
 
 def extract_price_range(text: str) -> tuple[Optional[float], Optional[float]]:
     text = text.lower()
