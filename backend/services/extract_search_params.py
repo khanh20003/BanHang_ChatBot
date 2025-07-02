@@ -76,6 +76,21 @@ def extract_search_params(text: str) -> Dict[str, Any]:
         # Thêm alias khác nếu cần ở đây
     }
     popular_categories = ['laptop', 'điện thoại', 'máy tính bảng', 'tai nghe', 'phụ kiện']
+    # Danh sách màu phổ biến
+    popular_colors = [
+        'đen', 'trắng', 'xanh', 'đỏ', 'vàng', 'hồng', 'tím', 'xám', 'bạc', 'xanh lá', 'xanh dương',
+        'cam', 'nâu', 'be', 'xanh navy', 'xanh rêu', 'xanh lam', 'xanh ngọc', 'xanh mint', 'xanh lục', 'xanh nước biển'
+    ]
+    color_alias_map = {
+        'xanh lá': 'xanh lá', 'xanh lục': 'xanh lá', 'green': 'xanh lá',
+        'xanh dương': 'xanh dương', 'xanh lam': 'xanh dương', 'blue': 'xanh dương',
+        'xanh navy': 'xanh navy', 'navy': 'xanh navy',
+        'xanh rêu': 'xanh rêu', 'rêu': 'xanh rêu',
+        'xanh ngọc': 'xanh ngọc', 'ngọc': 'xanh ngọc',
+        'xanh mint': 'xanh mint', 'mint': 'xanh mint',
+        'xanh nước biển': 'xanh nước biển',
+        # ... có thể bổ sung thêm ...
+    }
 
     # --- AI entity extraction ---
     ai_entities = {}
@@ -83,9 +98,9 @@ def extract_search_params(text: str) -> Dict[str, Any]:
         model = get_model()
         if model:
             prompt = f"""
-Bạn là AI trích xuất entity cho chatbot bán hàng. Hãy trả về JSON với các trường: brand, category, model (nếu có) từ câu sau. Nếu không có thì trả về null.
+Bạn là AI trích xuất entity cho chatbot bán hàng. Hãy trả về JSON với các trường: brand, category, model (nếu có), color (nếu có) từ câu sau. Nếu không có thì trả về null.
 Câu: '{text}'
-Chỉ trả lời đúng 1 dòng JSON, ví dụ: {{"brand": "iphone", "category": "điện thoại", "model": null}}
+Chỉ trả lời đúng 1 dòng JSON, ví dụ: {{"brand": "iphone", "category": "điện thoại", "model": null, "color": "xanh"}}
 """
             response = model.generate_content(prompt)
             import json as _json
@@ -93,19 +108,23 @@ Chỉ trả lời đúng 1 dòng JSON, ví dụ: {{"brand": "iphone", "category"
     except Exception as e:
         print(f"[DEBUG] Gemini entity extract error: {e}")
 
-    # Gán brand/category/model nếu có từ AI
+    # Gán brand/category/model/color nếu có từ AI
     if ai_entities.get('brand'):
         params['brand'] = ai_entities['brand']
     if ai_entities.get('category'):
         params['category'] = ai_entities['category']
     if ai_entities.get('model'):
         params['model'] = ai_entities['model']
+    if ai_entities.get('color'):
+        params['color'] = ai_entities['color']
 
-    # Làm sạch text khỏi brand/category đã biết
+    # Làm sạch text khỏi brand/category/color đã biết
     if 'brand' in params:
         text_lower_noaccent = text_lower_noaccent.replace(remove_accents(params['brand'].lower()), "")
     if 'category' in params:
         text_lower_noaccent = text_lower_noaccent.replace(remove_accents(params['category'].lower()), "")
+    if 'color' in params:
+        text_lower_noaccent = text_lower_noaccent.replace(remove_accents(params['color'].lower()), "")
 
     # --- Product type ---
     if re.search(r"flash\s?sale|flash_sale", text_lower):
@@ -155,6 +174,12 @@ Chỉ trả lời đúng 1 dòng JSON, ví dụ: {{"brand": "iphone", "category"
         guessed_cat = fuzzy_match(text, popular_categories, threshold=65)
         if guessed_cat:
             params['category'] = guessed_cat
+
+    # --- Fuzzy fallback color nếu AI không ra ---
+    if 'color' not in params:
+        guessed_color = fuzzy_match(text, list(color_alias_map.keys()) + popular_colors, threshold=70)
+        if guessed_color:
+            params['color'] = color_alias_map.get(guessed_color, guessed_color)
 
     # --- Price ---
     min_price, max_price = extract_price_range(text)

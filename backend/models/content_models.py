@@ -69,3 +69,4 @@ class Product(Base):
     category = relationship("Category", back_populates="products")
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
     brand = relationship("Brand")
+    color = Column(String(50), nullable=True)  # Thêm trường màu sắc cho sản phẩm

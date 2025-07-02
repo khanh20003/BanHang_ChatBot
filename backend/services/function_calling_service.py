@@ -40,6 +40,7 @@ def product_to_dict(p):
             "title": p.category.title,
             "image": p.category.image if p.category else None
         } if p.category else None,
+        "color": getattr(p, "color", None),  # Thêm trường color vào dict trả về
         "short_description": p.short_description,
         "product_type": p.product_type,
         "actions": [
@@ -215,6 +216,12 @@ def search_products(
         query = query.filter(Product.category_id == category_id)
         filter_logs.append(f"category_id={category_id}")
         has_filter = True
+    # --- Filter color nếu có ---
+    if search_params.get('color'):
+        color = search_params['color'].strip().lower()
+        query = query.filter(func.lower(Product.color) == color)
+        filter_logs.append(f"color='{color}'")
+        has_filter = True
     # --- END PATCH ---
 
     # --- PATCH: Chỉ lọc theo title nếu message có nhiều từ hoặc có context rõ ràng ---
@@ -310,6 +317,10 @@ def search_products(
         filtered_products = all_products
         if brand_id and (search_params.get('category') or search_params.get('product_type') or search_params.get('status')):
             filtered_products = [p for p in all_products if getattr(p, 'brand_id', None) == brand_id]
+        # --- Fuzzy filter theo color nếu có ---
+        if search_params.get('color'):
+            color = search_params['color'].strip().lower()
+            filtered_products = [p for p in filtered_products if getattr(p, 'color', None) and p.color.strip().lower() == color]
         else:
             for kw in main_keywords:
                 kw_noaccent = remove_accents(kw)

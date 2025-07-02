@@ -9,6 +9,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/products", tags=["products"])
 
+def append_color_to_description(product):
+    # Nếu có trường color và color khác None/rỗng, ghép vào mô tả
+    if hasattr(product, 'color') and product.color:
+        desc = getattr(product, 'description', None) or getattr(product, 'short_description', '')
+        color_text = f" Màu sắc: {product.color}"
+        # Nếu chưa có color trong mô tả thì ghép vào
+        if desc and color_text.strip() not in desc:
+            return desc.strip() + color_text
+        elif not desc:
+            return color_text.strip()
+        else:
+            return desc
+    else:
+        desc = getattr(product, 'description', None) or getattr(product, 'short_description', '')
+        return desc
+
 @router.get("/", response_model=list[schemas.Product])
 def read_products(
     skip: int = 0, 
@@ -19,18 +35,17 @@ def read_products(
 ):
     try:
         logger.info(f"Fetching products with filters: product_type={product_type}, category_id={category_id}")
-        
         if product_type:
             products = crud.get_products_by_type(db, product_type, skip=skip, limit=limit)
-            logger.info(f"Found {len(products)} products with type {product_type}")
-            return products
         elif category_id:
             products = crud.get_products_by_category(db, category_id, skip=skip, limit=limit)
-            logger.info(f"Found {len(products)} products in category {category_id}")
-            return products
-        
-        products = crud.get_products(db, skip=skip, limit=limit)
-        logger.info(f"Found {len(products)} products without filters")
+        else:
+            products = crud.get_products(db, skip=skip, limit=limit)
+        logger.info(f"Found {len(products)} products")
+        # Ghép màu vào mô tả trước khi trả về
+        for p in products:
+            if hasattr(p, 'color'):
+                p.description = append_color_to_description(p)
         return products
     except Exception as e:
         logger.error(f"Error fetching products: {str(e)}")
@@ -47,6 +62,9 @@ def get_products_by_category(
         logger.info(f"Fetching products for category {category_id}")
         products = crud.get_products_by_category(db, category_id, skip=skip, limit=limit)
         logger.info(f"Found {len(products)} products in category {category_id}")
+        for p in products:
+            if hasattr(p, 'color'):
+                p.description = append_color_to_description(p)
         return products
     except Exception as e:
         logger.error(f"Error fetching category products: {str(e)}")
@@ -61,6 +79,8 @@ def read_product(product_id: int, db: Session = Depends(database.get_db)):
     db_product = crud.get_product(db, product_id)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
+    if hasattr(db_product, 'color'):
+        db_product.description = append_color_to_description(db_product)
     return db_product
 
 @router.put("/{product_id}", response_model=schemas.Product)
@@ -81,4 +101,4 @@ def delete_product(product_id: int, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=404, detail="Product not found")
     db.delete(db_product)
     db.commit()
-    return {"message": "Product deleted successfully"} 
+    return {"message": "Product deleted successfully"}
