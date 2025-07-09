@@ -78,11 +78,8 @@ def product_to_dict(p):
         "currentPrice": float(p.currentPrice) if p.currentPrice else None,
         "status": p.status,
         "stock": p.stock,
-        "category": {
-            "id": p.category.id,
-            "title": p.category.title,
-            "image": p.category.image if p.category else None
-        } if p.category else None,
+        "category_id": p.category_id,  # Trả về category_id thay vì object
+        # Nếu muốn trả về thông tin category, cần truy vấn Category theo p.category_id ở ngoài
         "short_description": p.short_description,
         "product_type": p.product_type,
         "actions": [
@@ -135,10 +132,10 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
                         print("[DEBUG] search_params:", params)
                         if params:
                             try:
-                                products = search_products(db, params, limit=10)
+                                products, total = search_products(db, params, limit=10)
                             except Exception as e:
                                 print(f"[CHAT ERROR] search_products: {e}")
-                                products = []
+                                products, total = [], 0
                             is_discount = params.get('is_flash_sale') or is_discount_query(message)
                             if is_discount:
                                 try:
@@ -176,7 +173,7 @@ def process_user_message(message: str, user_id: int) -> Dict[str, Any]:
                             }
         params = extract_search_params(message)
         if params:
-            products = search_products(db, params, limit=10)
+            products, total = search_products(db, params, limit=10)
             is_discount = params.get('is_flash_sale') or is_discount_query(message)
             if is_discount:
                 products = [p for p in products if is_discount_product(p)]

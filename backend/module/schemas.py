@@ -5,7 +5,7 @@ from datetime import datetime
 class CategoryBase(BaseModel):
     title: str
     image: str
-    products: int  # Số lượng sản phẩm trong category
+    products: int = 0  # Số lượng sản phẩm trong category, mặc định 0
 
 class CategoryCreate(CategoryBase):
     pass

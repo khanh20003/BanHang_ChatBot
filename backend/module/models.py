@@ -10,7 +10,7 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
     image = Column(String)
-    products = Column(Integer)  # Số lượng sản phẩm trong category
+    products = Column(Integer, default=0)  # Số lượng sản phẩm trong category, mặc định 0
 
 class Product(Base):
     __tablename__ = "products"

@@ -13,8 +13,8 @@ class Banner(Base):
 class Brand(Base):
     __tablename__ = "brands"
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255))
-    logo = Column(String(500))
+    name = Column(String(255), nullable=False)
+    logo_url = Column(String(500), nullable=True)
 
 class Recent(Base):
     __tablename__ = "recents"
@@ -29,7 +29,7 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255))
     image = Column(String(500))
-    products = relationship("Product", back_populates="category")
+    products = Column(Integer, default=0)  # Số lượng sản phẩm trong category, mặc định 0
 
 class Client(Base):
     __tablename__ = "clients"
@@ -64,9 +64,4 @@ class Product(Base):
     product_type = Column(String(50))  # e.g., 'newest', 'trending', 'best_seller'
     tag = Column(String(50), nullable=True)  # e.g., 'new', 'sale'
     currentPrice = Column(Float, nullable=True)
-    rating = Column(Float, default=0)  # Thêm trường rating
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
-    category = relationship("Category", back_populates="products")
-    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
-    brand = relationship("Brand")
-    color = Column(String(50), nullable=True)  # Thêm trường màu sắc cho sản phẩm

@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from models.content_models import Product, Category
 from typing import List, Optional, Dict, Any
 import re
+from services.extract_search_params import extract_search_params  # Thêm import
 
 def search_products(
     db: Session,
@@ -20,6 +21,20 @@ def search_products(
     - rating: đánh giá tối thiểu
     - is_flash_sale: tìm sản phẩm đang giảm giá
     """
+    # --- Bổ sung entity còn thiếu từ name nếu cần ---
+    # Nếu search_params có 'name' nhưng thiếu brand/model/ram/... thì extract lại
+    need_extract = False
+    for key in ['brand', 'model', 'ram', 'color', 'storage', 'category']:
+        if key not in search_params and search_params.get('name'):
+            need_extract = True
+            break
+    if need_extract:
+        # Gọi lại extract_search_params trên search_params['name'] để lấy thêm entity
+        extracted = extract_search_params(search_params['name'])
+        for k, v in extracted.items():
+            if k not in search_params:
+                search_params[k] = v
+
     # Xây dựng query cơ bản
     query = db.query(Product)
 
@@ -60,10 +75,112 @@ def search_products(
     if search_params.get('is_flash_sale'):
         query = query.filter(Product.currentPrice < Product.price)
 
+    # --- Lọc theo brand/model nếu có ---
+    def remove_accents(s):
+        import unicodedata
+        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
+    if search_params.get('brand'):
+        brand = remove_accents(search_params['brand']).lower()
+        query = query.filter(
+            or_(
+                Product.title.ilike(f"%{search_params['brand']}%"),
+                Product.title.ilike(f"%{brand}%")
+            )
+        )
+    if search_params.get('model'):
+        model = remove_accents(str(search_params['model'])).lower()
+        # Tối ưu: match mọi sản phẩm có chứa brand + model (vd: 'iPhone 16' match cả 'iPhone 16 Pro Max')
+        if search_params.get('brand'):
+            brand = remove_accents(search_params['brand']).lower()
+            query = query.filter(
+                or_(
+                    Product.title.ilike(f"%{search_params['brand']}%{search_params['model']}%"),
+                    Product.title.ilike(f"%{brand}%{model}%"),
+                    Product.title.ilike(f"%{search_params['model']}%"),
+                    Product.title.ilike(f"%{model}%")
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    Product.title.ilike(f"%{search_params['model']}%"),
+                    Product.title.ilike(f"%{model}%")
+                )
+            )
+
+    # --- Lọc theo các entity cấu hình (ram, rom, pin, color, camera, chip, gpu, display, charging) ---
+    config_fields = ['ram', 'rom', 'pin', 'color', 'camera', 'chip', 'gpu', 'display', 'charging']
+    for field in config_fields:
+        value = search_params.get(field)
+        if value:
+            value_norm = value.strip().lower()
+            query = query.filter(Product.short_description.ilike(f"%{value_norm}%"))
+
+    # --- Lọc theo min_pin nếu có (lọc sản phẩm có pin >= giá trị này) ---
+    if search_params.get('min_pin'):
+        min_pin = int(search_params['min_pin'])
+        # Lọc các sản phẩm có short_description chứa pin >= min_pin (dạng 'Pin: 5000mAh')
+        # Sử dụng regexp để extract số pin từ short_description
+        from sqlalchemy import func
+        query = query.filter(
+            func.cast(
+                func.regexp_replace(
+                    func.substr(Product.short_description, func.instr(Product.short_description, 'Pin:'), 20),
+                    r'[^0-9]', ''
+                ),
+                int
+            ) >= min_pin
+        )
+
+    # --- Sắp xếp theo giá nếu có sort_by_price ---
+    if search_params.get('sort_by_price') == 'asc':
+        query = query.order_by(Product.currentPrice.asc())
+    elif search_params.get('sort_by_price') == 'desc':
+        query = query.order_by(Product.currentPrice.desc())
+
     # Giới hạn số lượng kết quả
     query = query.limit(limit)
-    
-    return query.all()
+    results = query.all()
+
+    # --- Fallback: Nếu filter theo ram không ra sản phẩm, gợi ý ram gần nhất ---
+    if not results and search_params.get('ram'):
+        ram_val = search_params['ram'].upper().replace('GB', '').strip()
+        try:
+            ram_num = int(ram_val)
+        except Exception:
+            ram_num = None
+        if ram_num:
+            # Lấy tất cả các ram có trong DB cùng category, cùng brand (nếu có)
+            ram_pattern = r'(\d{1,2})GB'
+            base_query = db.query(Product)
+            if search_params.get('category'):
+                category = search_params['category'].strip().lower()
+                base_query = base_query.join(Product.category).filter(Category.title.ilike(f"%{category}%"))
+            if search_params.get('brand'):
+                brand = search_params['brand']
+                base_query = base_query.filter(Product.title.ilike(f"%{brand}%"))
+            all_products = base_query.all()
+            ram_list = []
+            for p in all_products:
+                m = re.search(ram_pattern, p.short_description.upper())
+                if m:
+                    try:
+                        ram_list.append((abs(int(m.group(1)) - ram_num), int(m.group(1)), p))
+                    except:
+                        pass
+            ram_list.sort()  # Sắp xếp theo độ chênh lệch nhỏ nhất
+            # Lấy các sản phẩm có ram gần nhất (ưu tiên lớn hơn, nhỏ hơn)
+            fallback_products = []
+            used_ram = set()
+            for diff, ram, prod in ram_list:
+                if ram not in used_ram:
+                    fallback_products.append(prod)
+                    used_ram.add(ram)
+                if len(fallback_products) >= limit:
+                    break
+            return fallback_products
+    return results
 
 def extract_search_params(text: str) -> Dict[str, Any]:
     """

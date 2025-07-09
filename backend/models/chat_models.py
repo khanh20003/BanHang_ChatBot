@@ -7,6 +7,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id = Column(Integer, primary_key=True, index=True)
     customer_id = Column(Integer, index=True)
+    chat_session_id = Column(String(64), unique=True, index=True)  # Thêm trường này để phân biệt từng session vãng lai
     created_at = Column(DateTime, default=datetime.utcnow)
     messages = relationship("ChatMessage", back_populates="session")
 
@@ -17,4 +18,4 @@ class ChatMessage(Base):
     sender = Column(String(50))  # 'customer' hoặc 'bot'
     message = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
-    session = relationship("ChatSession", back_populates="messages") 
+    session = relationship("ChatSession", back_populates="messages")

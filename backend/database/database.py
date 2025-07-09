@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Get DATABASE_URL from environment or default to SQLite
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///sql_app.db")
+DATABASE_URL = "postgresql://postgres:123456@localhost:5432/Web_chatbot"
 
 # Create the database engine
 engine = create_engine(

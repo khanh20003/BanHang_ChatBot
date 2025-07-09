@@ -20,3 +20,4 @@ class ChatResponse(BaseModel):
     timestamp: datetime
     products: Optional[List[dict]] = None  # Cho phép trả về list sản phẩm dạng dict
     actions: Optional[List[dict]] = None   # Cho phép trả về list action dạng dict
+    chat_session_id: Optional[str] = None  # Thêm trường này để trả về session id cho khách vãng lai
