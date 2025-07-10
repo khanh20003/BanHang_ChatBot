@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import datetime, timedelta
 import uuid
 from . import models, schemas
@@ -53,12 +53,13 @@ def get_product(db: Session, product_id: int):
     return db.query(models.Product).filter(models.Product.id == product_id).first()
 
 # Create a product
-def create_product(db: Session, product: schemas.ProductCreate):
-    db_product = models.Product(**product.model_dump())
+def create_product(db: Session, product_data: dict):
+    db_product = models.Product(**product_data)
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
     return db_product
+
 
 def get_products_by_type(db: Session, product_type: str, skip: int = 0, limit: int = 100):
     try:
@@ -209,7 +210,7 @@ def calculate_cart_totals(db: Session, cart_id: int):
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = "your-secret-key-here"  # TODO: Move to environment variable
+SECRET_KEY = "a_tTrbm9zaFsL9F94RZFX0DBB3fkxPttv027JpF-WWk"  # TODO: Move to environment variable
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -297,13 +298,14 @@ def create_user(db: Session, user: schemas.UserCreate):
     db.refresh(db_user)
     return db_user
 
-def update_user(db: Session, user_id: int, user: schemas.UserBase):
+def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
     db_user = get_user(db, user_id)
-    if db_user:
-        for key, value in user.model_dump().items():
-            setattr(db_user, key, value)
-        db.commit()
-        db.refresh(db_user)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    for key, value in user_update.model_dump(exclude_unset=True).items():
+        setattr(db_user, key, value)
+    db.commit()
+    db.refresh(db_user)
     return db_user
 
 def delete_user(db: Session, user_id: int):
@@ -320,6 +322,18 @@ def authenticate_user(db: Session, username: str, password: str):
         return False
     if not verify_password(password, user.password_hash):
         return False
+    # Đánh dấu active khi đăng nhập thành công
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    return user
+
+def set_user_inactive(db: Session, user_id: int):
+    user = get_user(db, user_id)
+    if user:
+        user.is_active = False
+        db.commit()
+        db.refresh(user)
     return user
 
 # --- ORDER CRUD ---
@@ -364,6 +378,22 @@ def create_order(db: Session, order_data: schemas.OrderCreate, user_id: Optional
 
 def get_order(db: Session, order_id: int):
     return db.query(models.Order).filter(models.Order.id == order_id).first()
+
+def get_orders(db: Session, skip: int = 0, limit: int = 5, status: str = None, search: str = None):
+    query = db.query(models.Order).options(
+        joinedload(models.Order.items).joinedload(models.OrderItem.product)
+    )
+    if status and status != 'all':
+        query = query.filter(models.Order.status == status)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            (models.Order.id.ilike(search_term)) |
+            (models.Order.shipping_name.ilike(search_term))
+        )
+    total_orders = query.count()
+    orders = query.order_by(models.Order.created_at.desc()).offset(skip).limit(limit).all()
+    return {"orders": orders, "total_orders": total_orders}
 
 def get_user_orders(db: Session, user_id: int, skip: int = 0, limit: int = 100):
     return db.query(models.Order).filter(models.Order.user_id == user_id).offset(skip).limit(limit).all()

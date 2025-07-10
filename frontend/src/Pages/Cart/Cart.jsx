@@ -58,7 +58,7 @@ const Cart = () => {
                                         <img
                                             src={item.product.image.startsWith('http') 
                                                 ? item.product.image 
-                                                : `http://127.0.0.1:8000/static/${item.product.image}`}
+                                                : `http://127.0.0.1:8000/${item.product.image}`}
                                             alt={item.product.title}
                                             className="w-full h-full object-cover rounded"
                                         />

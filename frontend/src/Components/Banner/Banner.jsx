@@ -1,103 +1,122 @@
-import { useEffect, useState } from "react";
-import Slider from "react-slick";
-import axios from "axios";
-import "slick-carousel/slick/slick.css";
-import "slick-carousel/slick/slick-theme.css";
+import React, { useEffect, useState } from 'react';
+import Slider from 'react-slick';
+import { motion } from 'framer-motion';
+import { MoveRight } from 'lucide-react';
+import axios from 'axios';
+import { Link, useNavigate } from 'react-router-dom';
+import 'slick-carousel/slick/slick.css';
+import 'slick-carousel/slick/slick-theme.css';
+import { LazyLoadImage } from 'react-lazy-load-image-component';
+import 'react-lazy-load-image-component/src/effects/blur.css';
 
-export default function Banner() {
+const Banner = () => {
   const [banners, setBanners] = useState([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    axios
-      .get("http://127.0.0.1:8000/banners")
-      .then((res) => setBanners(res.data))
-      .catch((err) => console.error("Error:", err));
+    const fetchBanners = async () => {
+      try {
+        const response = await axios.get('http://127.0.0.1:8000/banners');
+        setBanners(response.data);
+      } catch (error) {
+        console.error('Failed to fetch banners', error);
+      }
+    };
+    fetchBanners();
   }, []);
 
   const settings = {
     dots: true,
     infinite: true,
-    speed: 700,
+    speed: 500,
     slidesToShow: 1,
     slidesToScroll: 1,
     autoplay: true,
     autoplaySpeed: 3000,
-    arrows: true,
+    pauseOnHover: true,
+    nextArrow: <CustomNextArrow />,
+    prevArrow: <CustomPrevArrow />,
   };
 
-  return (
-    <div className="w-full overflow-hidden relative">
-      <Slider {...settings}>
-        {banners.map((banner) => (
-          <div key={banner.id}>
-            <div className="flex flex-col md:flex-row items-center justify-between w-full bg-white px-4 md:px-24 py-10 md:py-16 min-h-[400px] md:min-h-[550px]">
-              {/* Image */}
-              <div className="w-full md:w-1/2 flex justify-center">
-                <img
-                  src={banner.image_url}
-                  alt={banner.title}
-                  className="w-full max-h-[500px] object-contain"
-                  onError={(e) => (e.target.src = "/fallback-product.png")}
-                />
-              </div>
+  const textVariants = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+  };
 
-              {/* Text */}
-              <div className="w-full md:w-1/2 text-center md:text-left mt-6 md:mt-0 space-y-4">
-                <p className="text-sm text-gray-500 uppercase tracking-wider">
-                  {banner.sub_title}
-                </p>
-                <h2 className="text-3xl md:text-5xl font-bold text-gray-900 leading-tight">
-                  {banner.title}
-                </h2>
-                <p className="text-base md:text-lg text-gray-600">
-                  {banner.description}
-                </p>
+  function CustomNextArrow(props) {
+    const { onClick } = props;
+    return (
+      <motion.div
+        className="absolute right-[-70px] top-1/2 -translate-y-1/2 cursor-pointer bg-white/30 dark:bg-gray-800/30 backdrop-blur-md rounded-full p-4 shadow-lg hover:bg-teal-500"
+        onClick={onClick}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </motion.div>
+    );
+  }
+
+  function CustomPrevArrow(props) {
+    const { onClick } = props;
+    return (
+      <motion.div
+        className="absolute left-[-70px] top-1/2 -translate-y-1/2 cursor-pointer bg-white/30 dark:bg-gray-800/30 backdrop-blur-md rounded-full p-4 shadow-lg hover:bg-teal-500"
+        onClick={onClick}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </motion.div>
+    );
+  }
+
+  return (
+    <div className="lg:container mx-auto px-4 py-8">
+      <Slider {...settings}>
+        {banners?.map((banner) => (
+          <div key={banner?.id} className="relative h-[500px] md:h-[600px] rounded-xl overflow-hidden">
+            <LazyLoadImage
+              src={banner.image_url || 'https://images.unsplash.com/photo-1721332153282-3be0f390237c?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80'}
+              alt={banner?.title}
+              className="w-full h-full object-cover"
+              effect="blur"
+              placeholderSrc="https://placeholder.co/1920x600?text=Loading"
+            />
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent flex items-center justify-start p-8 md:p-16"
+              variants={textVariants}
+              initial="initial"
+              animate="animate"
+            >
+              <div className="max-w-lg bg-white/30 dark:bg-gray-800/30 backdrop-blur-md p-6 rounded-lg">
+                <motion.p
+                  variants={textVariants}
+                  className="text-sm font-medium text-gray-200 uppercase"
+                >
+                  {banner?.sub_title || 'New Arrival'}
+                </motion.p>
+                <motion.h3
+                  variants={textVariants}
+                  className="text-4xl md:text-5xl font-bold text-white mt-2 mb-4"
+                >
+                  {banner?.title || 'Discover New Devices'}
+                </motion.h3>
+                <motion.button
+                  className="bg-gradient-to-r from-teal-500 to-blue-600 text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-teal-600"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => navigate('/products')}
+                >
+                  Shop Now <MoveRight size={20} />
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
           </div>
         ))}
       </Slider>
-
-      {/* Custom CSS */}
-      <style jsx global>{`
-        .slick-prev,
-        .slick-next {
-          z-index: 30;
-          width: 60px;
-          height: 60px;
-          background-color: rgba(0, 0, 0, 0.4);
-          border-radius: 9999px;
-          top: 50%;
-          transform: translateY(-50%);
-          display: flex !important;
-          justify-content: center;
-          align-items: center;
-        }
-
-        .slick-prev:before,
-        .slick-next:before {
-          font-size: 30px;
-          color: #fff;
-          opacity: 1;
-        }
-
-        .slick-prev {
-          left: 20px;
-        }
-
-        .slick-next {
-          right: 20px;
-        }
-
-        .slick-dots li button:before {
-          font-size: 12px;
-          color: #bbb;
-        }
-
-        .slick-dots li.slick-active button:before {
-          color: #000;
-        }
-      `}</style>
     </div>
   );
-}
+};
+
+export default Banner;

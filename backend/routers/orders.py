@@ -6,26 +6,64 @@ from datetime import datetime
 from module import crud, schemas
 from module.database import get_db
 from module.crud import get_current_active_user
+from module.models import Order, User
+from module.email_config import fm
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
+from fastapi import BackgroundTasks
 
 router = APIRouter(
     prefix="/orders",
     tags=["orders"]
 )
 
+# ví dụ trong order_router.py
+@router.get("/order/{order_id}")
+def get_order(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+
 @router.post("/", response_model=schemas.Order)
-def create_order(
+async def create_order(
     order: schemas.OrderCreate,
+    background_tasks: BackgroundTasks,  # dùng background task để tránh delay phản hồi
     db: Session = Depends(get_db),
-    current_user: Optional[schemas.UserResponse] = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Create a new order
-    """
-    return crud.create_order(
-        db=db,
-        order_data=order,
-        user_id=current_user.id if current_user else None
+    new_order = Order(
+        **order.dict(),
+        user_id=current_user.id,
+        created_at=datetime.utcnow()
     )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+
+    # Chuẩn bị nội dung email
+    subject = f"Xác nhận đơn hàng #{new_order.id}"
+    recipients = [current_user.email]
+    body = f"""
+    Xin chào {current_user.full_name or current_user.username},
+
+    Bạn đã đặt hàng thành công với mã đơn #{new_order.id}.
+    Tổng tiền: {new_order.total_amount:,}₫
+
+    Cảm ơn bạn đã mua hàng tại Device Store!
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=recipients,
+        body=body,
+        subtype=MessageType.plain
+    )
+
+    # Gửi email trong nền để tránh chặn phản hồi
+    background_tasks.add_task(fm.send_message, message)
+
+    return new_order
 
 @router.get("/", response_model=List[schemas.Order])
 def get_orders(
@@ -153,4 +191,4 @@ def get_order_item(
             detail="Order item not found"
         )
     
-    return item 
+    return item

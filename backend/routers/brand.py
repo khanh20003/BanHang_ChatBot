@@ -30,7 +30,7 @@ def update_brand(brand_id: int, brand: schemas.BrandCreate, db: Session = Depend
     db.refresh(db_brand)
     return db_brand
 
-@router.delete("/brands/{brand_id}")
+@router.delete("/{brand_id}")
 def delete_brand(brand_id: int, db: Session = Depends(database.get_db)):
     db_brand = crud.get_brand(db, brand_id)
     if not db_brand:

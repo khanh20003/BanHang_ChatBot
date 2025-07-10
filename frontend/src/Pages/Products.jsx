@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useCart } from '../context/CartContext';
+import { useLocation } from 'react-router-dom';
 
 const Products = () => {
     const [products, setProducts] = useState([]);
@@ -8,19 +9,28 @@ const Products = () => {
     const [error, setError] = useState(null);
     const [selectedType, setSelectedType] = useState(null);
     const { addToCart } = useCart();
+    const location = useLocation();
+
+    // Lấy từ khóa tìm kiếm từ query param
+    const searchParams = new URLSearchParams(location.search);
+    const search = searchParams.get('search') || '';
 
     useEffect(() => {
         fetchProducts();
-    }, [selectedType]);
+    }, [selectedType, search]);
 
     const fetchProducts = async () => {
         try {
             setLoading(true);
             console.log('Fetching products with type:', selectedType); // Debug log
             
-            const url = selectedType 
-                ? `http://localhost:8000/products?product_type=${selectedType}`
-                : 'http://localhost:8000/products';
+            let url = 'http://localhost:8000/products/';
+            if (selectedType) {
+                url += `?product_type=${selectedType}`;
+            }
+            if (search) {
+                url += `&search=${encodeURIComponent(search)}`;
+            }
             
             console.log('Request URL:', url); // Debug log
             
@@ -157,4 +167,4 @@ const Products = () => {
     );
 };
 
-export default Products; 
+export default Products;

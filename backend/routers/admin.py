@@ -1,18 +1,17 @@
-# routes/admin_router.py
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import List
+from sqlalchemy.orm import joinedload
 
 from module import schemas, models, crud, database
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/admin/login")
-
 
 @router.post("/login", response_model=schemas.Token)
 async def login_for_access_token(
@@ -31,7 +30,6 @@ async def login_for_access_token(
         data={"sub": admin.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-
 
 async def get_current_admin(
     token: str = Depends(oauth2_scheme),
@@ -55,11 +53,9 @@ async def get_current_admin(
         raise credentials_exception
     return admin
 
-
 @router.get("/me", response_model=schemas.Admin)
 async def read_admin_me(current_admin: models.Admin = Depends(get_current_admin)):
     return current_admin
-
 
 @router.post("/register", response_model=schemas.Admin)
 def register_admin(admin: schemas.AdminCreate, db: Session = Depends(database.get_db)):
@@ -68,22 +64,14 @@ def register_admin(admin: schemas.AdminCreate, db: Session = Depends(database.ge
         raise HTTPException(status_code=400, detail="Email already registered")
     return crud.create_admin(db=db, admin=admin)
 
-
 @router.get("/dashboard/stats")
 async def get_dashboard_stats(
     current_admin: models.Admin = Depends(get_current_admin),
     db: Session = Depends(database.get_db)
 ):
-    # Tổng doanh thu từ tất cả các đơn hàng
     total_revenue = db.query(func.coalesce(func.sum(models.Order.total_amount), 0)).scalar()
-
-    # Tổng số người dùng
     total_users = db.query(models.User).count()
-
-    # Tổng số sản phẩm
     total_products = db.query(models.Product).count()
-
-    # Hoạt động gần đây: lấy 5 user mới nhất
     recent_users = db.query(models.User).order_by(models.User.created_at.desc()).limit(5).all()
     recent_activity = [
         {
@@ -93,8 +81,6 @@ async def get_dashboard_stats(
         }
         for user in recent_users
     ]
-
-    # Dữ liệu doanh thu từng tháng trong 12 tháng gần nhất
     monthly_revenue = (
         db.query(
             extract('year', models.Order.created_at).label('year'),
@@ -121,36 +107,79 @@ async def get_dashboard_stats(
         "monthly_revenue": monthly_revenue_data
     }
 
-
-@router.get("/products", response_model=List[schemas.Product])
+@router.get("/products")
 async def get_admin_products(
+    skip: int = 0,
+    limit: int = 10,
+    search: str | None = None,
+    status: str | None = None,
+    product_type: str | None = None,
+    tag: str | None = None,
     current_admin: models.Admin = Depends(get_current_admin),
     db: Session = Depends(database.get_db)
 ):
     try:
-        products = crud.get_products(db)
-        return products
+        query = db.query(models.Product)
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(models.Product.title.ilike(search_term))
+        if status and status != "all":
+            query = query.filter(models.Product.status == status)
+        if product_type and product_type != "all":
+            query = query.filter(models.Product.product_type == product_type)
+        if tag and tag != "all":
+            query = query.filter(models.Product.tag == tag)
+        total_products = query.count()
+        products = query.order_by(models.Product.id).offset(skip).limit(limit).all()
+        return {
+            "products": products,
+            "total_products": total_products
+        }
     except Exception as e:
+        print(f"Lỗi lấy sản phẩm: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving products: {str(e)}"
         )
 
-
-@router.get("/orders", response_model=List[schemas.Order])
+@router.get("/orders")
 async def get_admin_orders(
+    skip: int = 0,
+    limit: int = 5,
+    status: str | None = None,
+    search: str | None = None,
     current_admin: models.Admin = Depends(get_current_admin),
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    request: Request = None
 ):
     try:
-        orders = db.query(models.Order).order_by(models.Order.created_at.desc()).all()
-        return orders
+        query = db.query(models.Order).options(
+            joinedload(models.Order.items).joinedload(models.OrderItem.product)
+        )
+        if status and status != 'all':
+            query = query.filter(models.Order.status == status)
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (models.Order.id.ilike(search_term)) |
+                (models.Order.shipping_name.ilike(search_term))
+            )
+        total_orders = query.count()
+        orders = query.order_by(models.Order.created_at.desc()).offset(skip).limit(limit).all()
+        for order in orders:
+            for item in order.items:
+                if  item.product and item.product.image and not item.product.image.startswith("http"):
+                    item.product.image = str(request.base_url).rstrip("/") + "/" + item.product.image.lstrip("/")
+        return {
+            "orders": orders,
+            "total_orders": total_orders
+        }
     except Exception as e:
+        print(f"Lỗi lấy đơn hàng: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving orders: {str(e)}"
         )
-
 
 @router.get("/users", response_model=List[schemas.UserResponse])
 async def get_admin_users(
@@ -165,7 +194,6 @@ async def get_admin_users(
             status_code=500,
             detail=f"Error retrieving users: {str(e)}"
         )
-
 
 @router.patch("/orders/{order_id}/status", response_model=schemas.Order)
 def admin_update_order_status(

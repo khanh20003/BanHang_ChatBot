@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from module import crud, schemas, database, models, email
+from module import crud, schemas, database, models, email_config
 from typing import Optional
 from module.crud import get_current_active_user
 

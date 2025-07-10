@@ -8,14 +8,14 @@ class Category(Base):
     __tablename__ = "categories"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, index=True)
+    name = Column(String, index=True)
     image = Column(String)
-    products = Column(Integer, default=0)  # Số lượng sản phẩm trong category, mặc định 0
+    products = Column(Integer)  # Số lượng sản phẩm trong category
 
 class Product(Base):
     __tablename__ = "products"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     title = Column(String, index=True)
     image = Column(String)
     price = Column(Float)
@@ -26,7 +26,6 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     tag = Column(String, nullable=True)          # 'new', 'sale', ...
     short_description = Column(String, nullable=True)
-    rating = Column(Float, nullable=True)  # Thêm trường rating
 
 class Banner(Base):
     __tablename__ = "banners"
@@ -40,7 +39,7 @@ class Brand(Base):
     __tablename__ = "brands"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    logo_url = Column(String, nullable=False)
+    logo = Column(String, nullable=False)
 
 class Feature(Base):
     __tablename__ = "features"
@@ -108,6 +107,7 @@ class ChatMessage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("chat_sessions.id"))
+    user_id = Column(String(50), nullable=True)  # <-- Thêm dòng này để lưu user_id dạng string (user hoặc guest_xxx)
     sender = Column(String)  # 'customer' hoặc 'bot'
     message = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -124,8 +124,10 @@ class User(Base):
     phone = Column(String(20), nullable=True)
     address = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, nullable=False)  # Trạng thái hoạt động của người dùng
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    avatar = Column(String, nullable=True)  # Thêm dòng này
 
 class Order(Base):
     __tablename__ = "orders"
@@ -152,6 +154,8 @@ class OrderItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id"))
     product_id = Column(Integer, ForeignKey("products.id"))
+    title = Column(String)  # Tên sản phẩm
+    image = Column(String)  # Hình ảnh sản phẩm
     quantity = Column(Integer)
     price = Column(Float)  # Price at time of purchase
     

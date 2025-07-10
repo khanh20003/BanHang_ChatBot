@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { FiArrowLeft } from 'react-icons/fi';
+import { FiArrowLeft, FiImage, FiTag } from 'react-icons/fi';
 
 const CategoryForm = () => {
   const { id } = useParams();
@@ -8,10 +8,11 @@ const CategoryForm = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
-    title: '',
-    image: '',
+    name: '',
+    image: '', // giữ để preview
     products: 0
   });
+  const [imageFile, setImageFile] = useState(null);
 
   useEffect(() => {
     if (id) {
@@ -35,7 +36,7 @@ const CategoryForm = () => {
 
       const data = await response.json();
       setFormData({
-        title: data.title || '',
+        name: data.name || '',
         image: data.image || '',
         products: data.products || 0
       });
@@ -52,6 +53,17 @@ const CategoryForm = () => {
     }));
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setImageFile(file);
+    if (file) {
+      setFormData(prev => ({
+        ...prev,
+        image: URL.createObjectURL(file) // preview
+      }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -62,14 +74,21 @@ const CategoryForm = () => {
       const url = id 
         ? `http://127.0.0.1:8000/categories/${id}`
         : 'http://127.0.0.1:8000/categories';
-      
+
+      const form = new FormData();
+      form.append('name', formData.name);
+      form.append('products', formData.products);
+      if (imageFile) {
+        form.append('image', imageFile);
+      }
+
       const response = await fetch(url, {
         method: id ? 'PUT' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          // Không set Content-Type, để browser tự set multipart/form-data
         },
-        body: JSON.stringify(formData)
+        body: form
       });
 
       if (!response.ok) {
@@ -85,60 +104,71 @@ const CategoryForm = () => {
   };
 
   return (
-    <div className="p-4">
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/admin/categories')}
-          className="flex items-center text-gray-600 hover:text-gray-900"
-        >
-          <FiArrowLeft className="mr-2" />
-          Back to Categories
-        </button>
-        <h1 className="text-2xl font-bold mt-4">
-          {id ? 'Edit Category' : 'Add New Category'}
-        </h1>
+    <div className="p-6 space-y-8 min-h-screen" style={{ background: 'linear-gradient(135deg, #f0f4f8 0%, #d9e2ec 100%)' }}>
+      <div className="flex justify-between items-center">
+        <div>
+          <button
+            onClick={() => navigate('/admin/categories')}
+            className="flex items-center text-gray-700 hover:text-indigo-600 transition-colors duration-300 transform hover:-translate-x-1"
+          >
+            <FiArrowLeft className="mr-2 animate-pulse" />
+            Back to Categories
+          </button>
+          <h1 className="text-4xl font-extrabold mt-4 text-gray-800 bg-gradient-to-r from-indigo-500 to-blue-500 bg-clip-text text-transparent drop-shadow-lg">
+            {id ? 'Edit Category' : 'Add New Category'}
+          </h1>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-xl shadow-lg animate-fadeIn">
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
-        <div className="grid grid-cols-1 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Title
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl p-6 shadow-xl transform hover:scale-105 transition-all duration-500">
+            <label className="block text-lg font-semibold text-gray-700 mb-3 flex items-center">
+              <FiTag className="mr-2 text-indigo-500" /> Title
             </label>
             <input
               type="text"
-              name="title"
-              value={formData.title}
+              name="name"
+              value={formData.name}
               onChange={handleChange}
               required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#029fae]"
+              className="w-full px-5 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Image URL
+          <div className="bg-white rounded-xl p-6 shadow-xl transform hover:scale-105 transition-all duration-500">
+            <label className="block text-lg font-semibold text-gray-700 mb-3 flex items-center">
+              <FiImage className="mr-2 text-indigo-500" /> Image
             </label>
             <input
-              type="url"
-              name="image"
-              value={formData.image}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#029fae]"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="w-full px-5 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300"
             />
+            {formData.image && (
+              <img
+                src={
+                  formData.image.startsWith('/')
+                    ? `http://127.0.0.1:8000${formData.image}`
+                    : formData.image
+                }
+                alt="Preview"
+                className="mt-4 h-24 w-24 object-cover rounded-lg border"
+              />
+            )}
           </div>
 
           {id && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Products Count
+            <div className="bg-white rounded-xl p-6 shadow-xl transform hover:scale-105 transition-all duration-500">
+              <label className="block text-lg font-semibold text-gray-700 mb-3 flex items-center">
+                <FiTag className="mr-2 text-indigo-500" /> Products Count
               </label>
               <input
                 type="number"
@@ -146,18 +176,17 @@ const CategoryForm = () => {
                 value={formData.products}
                 onChange={handleChange}
                 min="0"
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#029fae]"
-                
+                className="w-full px-5 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-300"
               />
             </div>
           )}
         </div>
 
-        <div className="mt-6">
+        <div className="mt-8">
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#029fae] text-white px-4 py-2 rounded-lg hover:bg-[#007580] disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-6 py-4 rounded-xl shadow-lg hover:from-indigo-700 hover:to-blue-700 transition-all duration-300 transform hover:-translate-y-1 disabled:opacity-70"
           >
             {loading ? 'Saving...' : (id ? 'Update Category' : 'Create Category')}
           </button>
@@ -167,4 +196,4 @@ const CategoryForm = () => {
   );
 };
 
-export default CategoryForm; 
+export default CategoryForm;

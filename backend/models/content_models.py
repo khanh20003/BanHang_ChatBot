@@ -27,7 +27,7 @@ class Recent(Base):
 class Category(Base):
     __tablename__ = "categories"
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255))
+    name = Column(String(255))
     image = Column(String(500))
     products = Column(Integer, default=0)  # Số lượng sản phẩm trong category, mặc định 0
 

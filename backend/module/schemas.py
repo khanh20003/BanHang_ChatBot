@@ -3,9 +3,9 @@ from typing import Optional, List
 from datetime import datetime
 
 class CategoryBase(BaseModel):
-    title: str
+    name: str
     image: str
-    products: int = 0  # Số lượng sản phẩm trong category, mặc định 0
+    products: int  # Số lượng sản phẩm trong category
 
 class CategoryCreate(CategoryBase):
     pass
@@ -17,10 +17,11 @@ class Category(CategoryBase):
         from_attributes = True
 
 
+# --- PRODUCT ---
 
 class ProductBase(BaseModel):
     title: str
-    image: str
+    image: Optional[str] = None
     price: float
     currentPrice: Optional[float] = None
     status: Optional[str] = None
@@ -47,9 +48,9 @@ from typing import Optional
 # --- BANNER ---
 class BannerBase(BaseModel):
     image_url: str
-    sub_title: str
-    title: str
-    description: str
+    sub_title: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
 
 class BannerCreate(BannerBase):
     pass
@@ -57,12 +58,12 @@ class BannerCreate(BannerBase):
 class Banner(BannerBase):
     id: int
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 # --- BRAND ---
 class BrandBase(BaseModel):
     name: str
-    logo_url: Optional[str] = None
+    logo: Optional[str] = None
 
 class BrandCreate(BrandBase):
     pass
@@ -215,6 +216,7 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    avatar: Optional[str] = None  # Thêm dòng này
 
 class UserCreate(UserBase):
     password: str
@@ -224,14 +226,24 @@ class UserLogin(BaseModel):
     username: str
     password: str
 
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
+    username: str
+    email: str | None = None
+    full_name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    created_at: datetime = None
+    avatar: str | None = None  # Thêm dòng này
     is_admin: bool
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    is_active: bool
+
+    @property
+    def role(self):
+        return "admin" if self.is_admin else "user"
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 class UserToken(BaseModel):
     access_token: str
@@ -239,6 +251,23 @@ class UserToken(BaseModel):
 
 class UserTokenData(BaseModel):
     username: Optional[str] = None
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None  # Sửa lại thành str
+    is_active: Optional[bool] = None
+
+class EmailRequest(BaseModel):
+    email: str
+
+class OTPRequest(BaseModel):
+    email: str
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    password: str
 
 # --- ORDER ---
 class OrderItemBase(BaseModel):
@@ -310,4 +339,3 @@ class CheckoutRequest(BaseModel):
 class CheckoutResponse(BaseModel):
     order: Order
     payment: Payment
-

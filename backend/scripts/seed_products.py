@@ -14,8 +14,8 @@ def seed_categories(db):
     db.commit()
     # Danh sách category tối thiểu cần cho products
     categories = [
-        Category(id=8, title="Điện thoại", image="static/images/categories/phone.png", products=0),
-        Category(id=9, title="Laptop", image="static/images/categories/laptop.png", products=0),
+        Category(id=8, name="Điện thoại", image="static/images/categories/phone.png", products=0),
+        Category(id=9, name="Laptop", image="static/images/categories/laptop.png", products=0),
     ]
     for cat in categories:
         db.add(cat)
