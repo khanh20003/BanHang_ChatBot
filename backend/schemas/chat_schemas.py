@@ -5,6 +5,7 @@ from datetime import datetime
 class ChatRequest(BaseModel):
     customer_id: int
     message: str
+    chat_session_id: str = None
 
 class ChatMessageSchema(BaseModel):
     id: int

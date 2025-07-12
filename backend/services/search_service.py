@@ -41,7 +41,7 @@ def search_products(
     # Lọc theo danh mục (category)
     if search_params.get('category'):
         category = search_params['category'].strip().lower()
-        query = query.join(Product.category).filter(Category.title.ilike(f"%{category}%"))
+        query = query.join(Product.category).filter(Category.name.ilike(f"%{category}%"))
 
     # Lọc theo từ khóa tên sản phẩm (name)
     if search_params.get('name'):
@@ -156,7 +156,7 @@ def search_products(
             base_query = db.query(Product)
             if search_params.get('category'):
                 category = search_params['category'].strip().lower()
-                base_query = base_query.join(Product.category).filter(Category.title.ilike(f"%{category}%"))
+                base_query = base_query.join(Product.category).filter(Category.name.ilike(f"%{category}%"))
             if search_params.get('brand'):
                 brand = search_params['brand']
                 base_query = base_query.filter(Product.title.ilike(f"%{brand}%"))

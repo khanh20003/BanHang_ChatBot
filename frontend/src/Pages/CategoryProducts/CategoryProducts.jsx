@@ -161,7 +161,7 @@ const CategoryProducts = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5 }}
                     >
-                        {category.title}
+                        {category.name}
                     </motion.h1>
                 </div>
             </div>

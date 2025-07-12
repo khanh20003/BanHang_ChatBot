@@ -37,7 +37,7 @@ def product_to_dict(p):
         "stock": p.stock,
         "category": {
             "id": p.category.id,
-            "title": p.category.title,
+            "title": p.category.name,
             "image": p.category.image if p.category else None
         } if p.category else None,
         "color": getattr(p, "color", None),  # Thêm trường color vào dict trả về

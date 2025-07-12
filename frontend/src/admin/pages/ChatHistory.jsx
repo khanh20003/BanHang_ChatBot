@@ -15,6 +15,8 @@ async function fetchUserList() {
 const ChatMessage = ({ message }) => {
   // Bot bên phải, user và admin bên trái
   const isBot = message.sender === 'bot';
+  // Nếu là khách vãng lai, lấy guest_id từ user_id nếu chưa có
+  const guestId = message.guest_id || (message.user_id && String(message.user_id).startsWith('guest_') ? message.user_id : null);
   return (
     <div className={`flex ${isBot ? 'justify-end' : 'justify-start'} mb-6`}>
       <div className={`flex max-w-[70%] ${isBot ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -27,8 +29,8 @@ const ChatMessage = ({ message }) => {
           isBot ? 'bg-purple-100 text-purple-900' : message.sender === 'admin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
         } shadow-md hover:shadow-lg transition-shadow`}>
           {/* Nếu là khách vãng lai thì hiển thị guest_id */}
-          {message.guest_id && (
-            <div className="text-xs text-gray-500 mb-1">Guest ID: <span className="font-mono">{message.guest_id}</span></div>
+          {guestId && (
+            <div className="text-xs text-gray-500 mb-1">Guest ID: <span className="font-mono">{guestId}</span></div>
           )}
           <p className="text-md">{message.content}</p>
           {Array.isArray(message.products) && message.products.length > 0 && (
@@ -190,13 +192,15 @@ const ChatHistory = () => {
     if (!selectedUser || !adminMessage.trim()) return;
     setSending(true);
     try {
+      const selectedObj = users.find(u => u.id.toString() === selectedUser);
+      const isGuest = selectedObj && selectedObj.group === 'guest';
       // Gửi qua WebSocket nếu có
       if (wsRef.current && wsRef.current.readyState === 1) {
         const msg = {
-          id: Date.now(), // tạm thời, backend có thể cập nhật lại
-          user_id: selectedUser,
+          id: Date.now(),
+          user_id: isGuest ? undefined : selectedUser,
           user_name: users.find(u => u.id.toString() === selectedUser)?.name || selectedUser,
-          guest_id: undefined,
+          guest_id: isGuest ? selectedUser : undefined,
           content: adminMessage,
           products: undefined,
           sender: "admin",
@@ -206,17 +210,16 @@ const ChatHistory = () => {
         setAdminMessage("");
       } else {
         // fallback: gửi API như cũ
+        const body = isGuest
+          ? { message: adminMessage, chat_session_id: selectedUser, sender: "admin" }
+          : { message: adminMessage, customer_id: selectedUser, sender: "admin" };
         const res = await fetch("http://127.0.0.1:8000/chat/", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             'Authorization': `Bearer ${localStorage.getItem('adminToken') || ''}`
           },
-          body: JSON.stringify({
-            message: adminMessage,
-            customer_id: selectedUser,
-            sender: "admin"
-          })
+          body: JSON.stringify(body)
         });
         if (res.ok) setAdminMessage("");
       }
@@ -245,7 +248,8 @@ const ChatHistory = () => {
         <div className="relative">
           <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
           <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)}
-            className="pl-10 pr-4 py-2 w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none hover:shadow-md transition-all">
+            className="pl-10 pr-4 py-2 w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none hover:shadow-md transition-all"
+            style={{ background: '#fff', color: '#000', borderColor: '#333' }}>
             <option value="" disabled>Chọn user hoặc khách vãng lai...</option>
             <optgroup label="Người dùng">
               {users.filter(u => u.group === 'user').map((user) => (

@@ -26,7 +26,7 @@ const ProductTable = ({ products, onEdit, onDelete, loading }) => {
           {products && products.length > 0 ? (
             products.map((product) => (
               <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-md text-gray-900">{product.id}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-md text-black">{product.id}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="h-12 w-12 flex-shrink-0">
                     <img
@@ -42,9 +42,9 @@ const ProductTable = ({ products, onEdit, onDelete, loading }) => {
                     />
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-md font-medium text-gray-900">{product.title}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-md text-gray-900">{product.price}đ</td>
-                <td className="px-6 py-4 whitespace-nowrap text-md text-gray-900">{product.currentPrice || '-'}đ</td>
+                <td className="px-6 py-4 whitespace-nowrap text-md font-medium text-black">{product.title}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-md text-black">{product.price}đ</td>
+                <td className="px-6 py-4 whitespace-nowrap text-md text-black">{product.currentPrice || '-'}đ</td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-3 py-1 inline-flex text-sm font-semibold rounded-full ${product.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                     {product.status ? product.status.charAt(0).toUpperCase() + product.status.slice(1) : 'Inactive'}

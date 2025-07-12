@@ -17,7 +17,7 @@ const CategoryCard = ({ category, onEdit, onDelete }) => (
         className="h-15 w-15 rounded-lg object-cover border-2 border-indigo-200 hover:border-indigo-400 transition-all"
       />
       <div className="flex-1">
-        <h3 className="text-lg font-semibold text-gray-900">{category.name}</h3>
+        <h3 className="text-lg font-semibold text-black">{category.name}</h3>
         <p className="text-md text-gray-600">Products: {category.products || 0}</p>
       </div>
     </div>

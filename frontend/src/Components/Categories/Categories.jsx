@@ -99,7 +99,7 @@ const Categories = () => {
                 <LazyLoadImage
                   className="w-full h-80 object-cover"
                   src={getImageUrl(category.image)}
-                  alt={category.title || 'Category'}
+                  alt={category.name || 'Category'}
                   effect="blur"
                   placeholderSrc="https://placeholder.co/400x200?text=Loading"
                 />

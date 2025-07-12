@@ -14,8 +14,8 @@ const StatCard = ({ title, value, icon: Icon, trend }) => (
   <div className="bg-gradient-to-br from-indigo-50 to-blue-100 rounded-xl shadow-md p-6 hover:shadow-xl transition-all duration-300 transform hover:scale-105">
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-sm font-medium text-gray-600 uppercase tracking-wide">{title}</p>
-        <p className="mt-3 text-3xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm font-medium text-gray-800 uppercase tracking-wide">{title}</p>
+        <p className="mt-3 text-3xl font-bold text-black">{value}</p>
       </div>
       <div className="p-3 bg-indigo-200 rounded-full">
         <Icon className="w-8 h-8 text-indigo-700" />

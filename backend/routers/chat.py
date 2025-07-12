@@ -6,6 +6,7 @@ from module.schemas import ChatRequest, ChatResponse, ChatMessageSchema
 from services.chat_service import process_user_message
 from services.gemini_service import generate_gemini_response
 import uuid
+from datetime import datetime
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -14,38 +15,53 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
     try:
         session = None
         print(f"[DEBUG] Nhận chat_session_id từ request: {request.chat_session_id}")
-        # Ưu tiên tìm session theo chat_session_id nếu có và không rỗng
+
+        # 1. Ưu tiên tìm theo chat_session_id nếu có
         if request.chat_session_id and request.chat_session_id.strip():
             session = db.query(ChatSession).filter(ChatSession.chat_session_id == request.chat_session_id).first()
-        # Nếu không có chat_session_id, mới tìm theo customer_id (chỉ cho user đã đăng nhập)
-        elif request.customer_id and request.customer_id != 0:
-            session = db.query(ChatSession).filter(ChatSession.customer_id == request.customer_id).first()
-        # Nếu vẫn chưa có session, tạo mới với chat_session_id ngẫu nhiên nếu cần
+
+        # 2. Nếu không có session theo chat_session_id, xử lý tiếp
         if not session:
-            new_session_id = request.chat_session_id if request.chat_session_id and request.chat_session_id.strip() else str(uuid.uuid4())
-            session = ChatSession(customer_id=request.customer_id if request.customer_id != 0 else None,
-                                  chat_session_id=new_session_id)
+            new_session_id = str(uuid.uuid4())
+            if request.customer_id and request.customer_id != 0:
+                # Người dùng đã đăng nhập → tạo session mới
+                session = ChatSession(
+                    customer_id=request.customer_id,
+                    chat_session_id=new_session_id
+                )
+                print(f"[DEBUG] Tạo session mới cho người dùng đăng nhập (id={request.customer_id})")
+            else:
+                # Người dùng vãng lai → tạo session mới
+                session = ChatSession(
+                    customer_id=None,
+                    chat_session_id=new_session_id
+                )
+                print(f"[DEBUG] Tạo session mới cho khách vãng lai")
             db.add(session)
             db.commit()
             db.refresh(session)
-            print(f"[DEBUG] Tạo session mới với chat_session_id: {session.chat_session_id}")
         else:
             print(f"[DEBUG] Đã tìm thấy session: id={session.id}, chat_session_id={session.chat_session_id}")
 
-        # Lưu câu hỏi
+        # Lưu câu hỏi người dùng
         user_msg = ChatMessage(session_id=session.id, sender="customer", message=request.message)
         db.add(user_msg)
 
-        # Tìm câu trả lời từ chatbot logic
+        # Xử lý logic từ AI
         logic_response = process_user_message(request.message, request.customer_id)
-        # Luôn truyền context=logic_response cho Gemini để sinh câu trả lời tự nhiên hơn
-        response_text = generate_gemini_response(request.message, context=logic_response if logic_response is not None else None)
+        response_text = generate_gemini_response(request.message, context=logic_response or {})
+
+        # Trích xuất dữ liệu nếu có
         products = logic_response.get("products") if logic_response else None
         actions = logic_response.get("actions") if logic_response else None
 
-        # Lưu câu trả lời
+        # Lưu câu trả lời từ bot
         bot_msg = ChatMessage(session_id=session.id, sender="bot", message=response_text)
         db.add(bot_msg)
+
+        # Cập nhật thời gian tương tác cuối
+        session.updated_at = datetime.utcnow()
+
         db.commit()
 
         return ChatResponse(
@@ -55,16 +71,33 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
             actions=actions,
             chat_session_id=session.chat_session_id
         )
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history/{customer_id}", response_model=list[ChatMessageSchema])
-def get_chat_history_by_customer(customer_id: int, db: Session = Depends(get_db)):
-    session = db.query(ChatSession).filter(ChatSession.customer_id == customer_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phiên trò chuyện.")
-    return session.messages
+def get_chat_history_by_customer(customer_id: str, db: Session = Depends(get_db)):
+    # Chặn truyền customer_id='all' hoặc các giá trị không hợp lệ
+    if customer_id == "all":
+        raise HTTPException(status_code=400, detail="Không được truyền 'all' vào API này. Hãy dùng API /chat/history/all để lấy toàn bộ lịch sử chat.")
+    if not customer_id or customer_id.strip() == '' or customer_id == '0':
+        raise HTTPException(status_code=400, detail="customer_id không hợp lệ. Nếu muốn lấy lịch sử khách vãng lai, hãy truyền guest_id hoặc user_id hợp lệ.")
+    # Nếu là guest (guest_xxx), truy vấn theo user_id ở bảng ChatMessage
+    if str(customer_id).lower().startswith('guest_'):
+        messages = db.query(ChatMessage).filter(ChatMessage.user_id == customer_id).order_by(ChatMessage.timestamp).all()
+        return messages
+    # Nếu là user thật (user_id là số), truy vấn theo customer_id ở bảng ChatSession
+    elif str(customer_id).isdigit():
+        sessions = db.query(ChatSession).filter(ChatSession.customer_id == int(customer_id)).order_by(ChatSession.created_at.desc()).all()
+        if not sessions:
+            raise HTTPException(status_code=404, detail="Không tìm thấy phiên trò chuyện.")
+        messages = []
+        for session in sessions:
+            messages.extend(session.messages)
+        return messages
+    else:
+        raise HTTPException(status_code=400, detail="customer_id không hợp lệ. Nếu muốn lấy lịch sử khách vãng lai, hãy truyền guest_id hoặc user_id hợp lệ.")
 
 @router.get("/history/session/{chat_session_id}", response_model=list[ChatMessageSchema])
 def get_chat_history_by_session(chat_session_id: str, db: Session = Depends(get_db)):
@@ -72,3 +105,6 @@ def get_chat_history_by_session(chat_session_id: str, db: Session = Depends(get_
     if not session:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên trò chuyện theo session.")
     return session.messages
+
+
+

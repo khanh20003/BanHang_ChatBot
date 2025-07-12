@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getOrCreateChatSessionId } from '../../utils/chatSession';
 import '../index.css'; // Import global styles if needed
 import './Chatbot.css'; // Import Chatbot specific styles
 // Import các component khác nếu cần, ví dụ cho danh sách sản phẩm
@@ -15,7 +16,6 @@ const Chatbot = ({ customerId }) => {
     ]);
     // State để lưu trữ nội dung input
     const [inputMessage, setInputMessage] = useState('');
-    const [isSending, setIsSending] = useState(false);
 
     // Ref cho vùng tin nhắn để cuộn xuống dưới
     const chatBoxRef = useRef(null);
@@ -30,9 +30,8 @@ const Chatbot = ({ customerId }) => {
 
     // Hàm gửi tin nhắn
     const sendMessage = async () => {
-        if (isSending) return;
         if (inputMessage.trim() === '') return;
-        setIsSending(true);
+
         const userMessage = inputMessage;
         // Thêm tin nhắn người dùng vào state ngay lập tức
         setMessages(prevMessages => [...prevMessages, { text: userMessage, sender: 'user' }]);
@@ -50,6 +49,15 @@ const Chatbot = ({ customerId }) => {
 
         const apiUrl = 'http://127.0.0.1:8000/chat/'; // Endpoint API của backend
 
+        let payload = { message: userMessage };
+        if (customerId && customerId !== 0) {
+            payload.customer_id = customerId;
+        } else {
+            // Khách vãng lai: truyền customer_id=0 và chat_session_id
+            payload.customer_id = 0;
+            const { getOrCreateChatSessionId } = await import('../../utils/chatSession');
+            payload.chat_session_id = getOrCreateChatSessionId();
+        }
         try {
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -57,10 +65,7 @@ const Chatbot = ({ customerId }) => {
                     'accept': 'application/json',
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    message: userMessage,
-                    customer_id: customerId // Sử dụng customerId từ props
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
@@ -97,8 +102,6 @@ const Chatbot = ({ customerId }) => {
         } catch (error) {
             console.error('Lỗi kết nối đến backend:', error);
             setMessages(prevMessages => [...prevMessages, { text: "Lỗi kết nối đến server.", sender: 'bot', type: 'text' }]);
-        } finally {
-            setIsSending(false);
         }
     };
 
@@ -119,6 +122,12 @@ const Chatbot = ({ customerId }) => {
     // Hàm xử lý click vào nút hành động nhanh (ví dụ)
     const handleQuickAction = (action) => {
         console.log('Quick action clicked:', action);
+    // Tự động sinh session id cho khách vãng lai khi mở chat lần đầu
+    useEffect(() => {
+        if (!customerId || customerId === 0) {
+            getOrCreateChatSessionId();
+        }
+    }, [customerId]);
         // TODO: Gửi action đến backend hoặc xử lý tương ứng
         // Ví dụ: sendMessage(action); // Gửi action như một tin nhắn của người dùng
     };
@@ -147,11 +156,10 @@ const Chatbot = ({ customerId }) => {
                 {/* Header */}
                 <div className="chat-header" style={{ backgroundColor: '#004AAD', color: 'white', padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div className="chat-header-logo" style={{ marginRight: '10px' }}>
-                        {/* Thay bằng logo thật của bạn */}
-                        <div style={{width: '30px', height: '30px', backgroundColor: 'yellow', borderRadius: '50%'}}></div>
+            payload.chat_session_id = getOrCreateChatSessionId();
                     </div>
                     <div className="chat-header-title" style={{ flexGrow: 1, fontWeight: 'bold' }}>
-                        Siêu Thị Điện Máy - Nội Thất Chợ Lớn
+                        Thiết bị điện tử - DEVICE
                     </div>
                     <div className="chat-header-actions" style={{ display: 'flex', alignItems: 'center' }}>
                         {/* Nút refresh/reset chat (tạm thời không có chức năng) */}
@@ -168,9 +176,23 @@ const Chatbot = ({ customerId }) => {
                 {/* Message Area */}
                 <div className="chat-box" ref={chatBoxRef} style={{ flexGrow: 1, padding: '10px', overflowY: 'auto', backgroundColor: '#f0f0f0' }}>
                     {messages.map((msg, index) => (
-                        <div key={index} className={`chat-bubble ${msg.sender}-message`} style={{ marginBottom: '10px', maxWidth: '80%', borderRadius: '8px', padding: '8px', alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', backgroundColor: msg.sender === 'user' ? '#007bff' : '#e9e9eb', color: msg.sender === 'user' ? 'white' : '#333' }}>
-                            {/* Bạn có thể cần xử lý hiển thị HTML hoặc các loại tin nhắn khác ở đây */}
-                            {msg.text}
+                        <div key={index} className={`chat-bubble ${msg.sender}-message`} style={{ marginBottom: '10px', maxWidth: '80%', borderRadius: '8px', padding: '8px', alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', backgroundColor: msg.sender === 'user' ? '#007bff' : '#e9e9eb', color: msg.sender === 'user' ? 'white' : '#333' 
+
+                        }}>
+                            {msg.type === 'product_list' ? (
+                            <div>
+                                <strong>Sản phẩm gợi ý:</strong>
+                                <ul>
+                                {msg.data.map((product, i) => (
+                                    <li key={i}>
+                                    <strong>{product.name}</strong> - {product.price}
+                                    </li>
+                                ))}
+                                </ul>
+                            </div>
+                            ) : (
+                            msg.text
+                            )}
                         </div>
                     ))}
                 </div>
@@ -191,15 +213,15 @@ const Chatbot = ({ customerId }) => {
                         placeholder="Nhập tin nhắn..."
                         value={inputMessage}
                         onChange={(e) => setInputMessage(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !isSending) {
-                                e.preventDefault();
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault(); // Ngăn xuống dòng khi nhấn Enter
                                 sendMessage();
                             }
                         }}
                         style={{ flexGrow: 1, padding: '8px', borderRadius: '20px', border: '1px solid #ccc', marginRight: '10px' }}
                     />
-                    <button type="button" className="send-button" onClick={sendMessage} disabled={isSending} style={{ background: '#007bff', color: 'white', border: 'none', borderRadius: '50%', width: '35px', height: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isSending ? 'not-allowed' : 'pointer' }}>
+                    <button className="send-button" onClick={sendMessage} style={{ background: '#007bff', color: 'white', border: 'none', borderRadius: '50%', width: '35px', height: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                          {/* Biểu tượng gửi */}
                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y2="2" x2="11" y1="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
@@ -219,4 +241,4 @@ const Chatbot = ({ customerId }) => {
     );
 };
 
-export default Chatbot;
+export default Chatbot; 

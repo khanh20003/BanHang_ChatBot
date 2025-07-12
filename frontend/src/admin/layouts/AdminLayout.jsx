@@ -40,7 +40,7 @@ const AdminLayout = () => {
         } bg-white border-r border-gray-200 w-64`}
       >
         <div className="flex items-center justify-between h-16 px-4 border-b">
-          <h1 className="text-xl font-bold text-gray-800">Admin Panel</h1>
+          <h1 className="text-xl font-bold text-black">Admin Panel</h1>
           <button
             onClick={() => setIsSidebarOpen(false)}
             className="p-2 rounded-md lg:hidden hover:bg-gray-100"
@@ -54,7 +54,7 @@ const AdminLayout = () => {
             <Link
               key={item.path}
               to={item.path}
-              className="flex items-center px-4 py-2 text-gray-700 rounded-md hover:bg-gray-100"
+              className="flex items-center px-4 py-2 text-black rounded-md hover:bg-gray-100"
             >
               {item.icon}
               <span className="ml-3">{item.label}</span>
